@@ -1,0 +1,6 @@
+**
+!package.json
+!package-lock.json
+!k8s/
+!k8s/Dockerfile
+!k8s/chromium-server.mjs

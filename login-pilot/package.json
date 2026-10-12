@@ -1,0 +1,22 @@
+{
+  "name": "usos-isolated-login-pilot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build:dashboard": "node build-dashboard.mjs",
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check server.mjs && node --check browser.mjs && node --check dashboard.mjs && node --check build-dashboard.mjs && node --check public/app.js && node --check public/dashboard-session.js && node --check accounts.mjs && node --check public/account.js && node --check kubernetes.mjs && node --check k8s/chromium-server.mjs",
+    "start:kubernetes": "bash k8s/start-local.sh",
+    "test:kubernetes": "node test/kubernetes-live.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0",
+    "tsx": "4.23.13",
+    "ws": "8.21.3"
+  }
+}

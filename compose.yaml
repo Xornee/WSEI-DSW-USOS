@@ -1,0 +1,42 @@
+name: usos-local
+services:
+  app:
+    image: usos-local:local
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${APP_PORT:-8789}:8789"
+    environment:
+      PILOT_PORT: "8789"
+      PILOT_BIND_HOST: "0.0.0.0"
+      PILOT_PUBLIC_ORIGIN: "http://127.0.0.1:${APP_PORT:-8789}"
+      PILOT_ACCOUNTS_PATH: "/data/accounts/accounts.sqlite"
+      WORKER_BACKEND: "local"
+      TIMETABLE_TRACK_ID: "${TIMETABLE_TRACK_ID:-958}"
+      PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright"
+      TZ: "Europe/Warsaw"
+    volumes:
+      - accounts:/data/accounts
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=536870912,mode=1777
+    shm_size: "256mb"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./docker/chromium-seccomp.json
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "node", "-e", "const http=require('node:http');const req=http.get({hostname:'127.0.0.1',port:8789,path:'/readyz',headers:{Host:new URL(process.env.PILOT_PUBLIC_ORIGIN).host}},r=>{r.resume();process.exit(r.statusCode===200?0:1)});req.on('error',()=>process.exit(1));"]
+      interval: 20s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+volumes:
+  accounts:

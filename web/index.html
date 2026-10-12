@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pl" class="h-full">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>USOS — lokalnie</title>
+    <meta name="theme-color" content="#ffffff" />
+    <meta
+      name="description"
+      content="Twój lokalny panel studenta. Plan zajęć, oceny i profil w jednym miejscu."
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Apply the saved theme before first paint; default remains light.
+      try {
+        document.documentElement.dataset.theme =
+          localStorage.getItem("usos-theme") === "dark" ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "light";
+      }
+    </script>
+  </head>
+  <body class="h-full">
+    <div id="root" class="h-full"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

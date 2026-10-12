@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>USOS · Connect your account</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >u<span>.</span> <span class="brand-name">USOS local</span></a
+      >
+      <div class="header-right">
+        <a href="/account" class="quiet" id="account-menu">Moje konto</a
+        ><span class="tag">POŁĄCZENIE USOS</span
+        ><button id="theme" class="quiet" aria-label="Toggle dark mode">
+          Dark mode
+        </button>
+      </div>
+    </header>
+    <main>
+      <div class="heading">
+        <div>
+          <div class="eyebrow">YOUR UNIVERSITY, CONNECTED</div>
+          <h1>One login. Your own session.</h1>
+          <p>
+            Sign in inside an isolated Chromium browser. Your backend takes it
+            from there.
+          </p>
+        </div>
+        <span class="local-badge"><i></i> Local pilot</span>
+      </div>
+      <div class="layout">
+        <section class="browser-panel" aria-label="Remote Chromium viewer">
+          <div class="browser-toolbar">
+            <div class="dots"><i></i><i></i><i></i></div>
+            <span id="origin">Chromium · ready when you are</span
+            ><span id="connection" class="tag">OFFLINE</span>
+          </div>
+          <div id="screen-wrap">
+            <div id="placeholder">
+              <div class="illustration">↗</div>
+              <h2>Your login, in a separate browser</h2>
+              <p>
+                Open Chromium, sign in with Microsoft, and approve the request
+                in your Authenticator app.
+              </p>
+              <button id="start-main" class="primary">
+                Uruchom Chromium <span>↗</span></button
+              ><small>Nothing connects until you start.</small>
+            </div>
+            <canvas
+              id="screen"
+              width="1280"
+              height="800"
+              tabindex="0"
+              hidden
+              aria-label="Interactive remote browser. Click to focus, then type. Tab, Enter and paste are supported."
+            ></canvas>
+            <div id="success" hidden>
+              <div class="success-icon">✓</div>
+              <h2>Backend connected.</h2>
+              <p>
+                A separate backend HTTP request confirmed the same USOS account.
+                The login browser is now closed.
+              </p>
+              <p class="muted">
+                Your own session and cache power the dashboard. The original app
+                remains unchanged.
+              </p>
+              <a
+                id="open-dashboard"
+                class="primary dashboard-link"
+                href="/dashboard/#student"
+                hidden
+                >Open my dashboard ↗</a
+              >
+            </div>
+          </div>
+          <div class="browser-footer">
+            <span id="viewer-help"
+              >1280 × 800 · isolated browser process · no recording</span
+            ><button id="focus" class="quiet" hidden>Focus keyboard</button>
+          </div>
+        </section>
+        <aside>
+          <section class="card">
+            <div class="card-label">CONNECTION</div>
+            <h2 id="state">Ready to connect</h2>
+            <ol>
+              <li>
+                <span>1</span>
+                <div>
+                  <strong>Open Chromium</strong>
+                  <p>A fresh browser, just for this session.</p>
+                </div>
+              </li>
+              <li>
+                <span>2</span>
+                <div>
+                  <strong>Sign in with Microsoft</strong>
+                  <p>Use the university login and complete MFA yourself.</p>
+                </div>
+              </li>
+              <li>
+                <span>3</span>
+                <div>
+                  <strong>Verify on the backend</strong>
+                  <p>
+                    After returning to USOS, check the session without the
+                    browser.
+                  </p>
+                </div>
+              </li>
+            </ol>
+            <button id="start" class="secondary">Uruchom Chromium</button
+            ><button id="verify" class="primary" disabled>
+              Verify USOS connection</button
+            ><button id="disconnect" class="quiet danger" disabled>
+              Disconnect & clear session
+            </button>
+            <p id="notice" role="status" aria-live="polite">
+              Your existing USOS app is not modified by this pilot.
+            </p>
+            <small id="expiry"></small>
+          </section>
+          <section id="calendar-card" class="card compact" hidden>
+            <div class="card-label">YOUR CALENDAR · OPTIONAL</div>
+            <p>
+              Your calendar connects automatically after USOS verification. The
+              private export link stays on the backend.
+            </p>
+            <button id="auto-calendar" class="secondary">
+              Retry automatic connection
+            </button>
+            <details>
+              <summary>Manual calendar connection</summary>
+              <label for="calendar-url">Private iCal link</label>
+              <input
+                id="calendar-url"
+                type="password"
+                autocomplete="off"
+                placeholder="https://usosapps.ideis.pl/…"
+                maxlength="3000"
+              />
+              <button id="save-calendar" class="secondary">
+                Connect my calendar
+              </button>
+            </details>
+            <p id="calendar-status" role="status">
+              Stored only in this connection's memory. Never copied from the
+              original app.
+            </p>
+          </section>
+          <section class="card compact">
+            <div class="card-label">TWOJE POŁĄCZENIE</div>
+            <p>
+              Każdy użytkownik loguje się na własne konto aplikacji i uruchamia
+              własną przeglądarkę. Jej ekran i połączenie są przypisane do
+              konta.
+            </p>
+            <p class="muted">
+              Wylogowanie zamyka połączenie USOS. Konta pozostają zapisane
+              lokalnie. Ta wersja działa na komputerze; hosting jest następnym
+              etapem.
+            </p>
+          </section>
+        </aside>
+      </div>
+      <details class="requests">
+        <summary>
+          Requests made by this session <span>Methods + origins only</span>
+        </summary>
+        <p>
+          Includes requests made automatically by the university and Microsoft
+          pages. No request bodies, cookies, query strings or form input are
+          recorded.
+        </p>
+        <ul id="requests">
+          <li>No remote requests yet.</li>
+        </ul>
+      </details>
+    </main>
+    <footer>
+      USOS local
+      <span
+        >Experimental connection pilot · session data is cleared on disconnect,
+        expiry or server stop</span
+      >
+    </footer>
+  </body>
+</html>

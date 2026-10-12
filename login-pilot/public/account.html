@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moje konto · USOS local</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/account.css" />
+    <script src="/account.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >u<span>.</span> <span class="brand-name">USOS local</span></a
+      >
+      <nav class="header-right" aria-label="Menu konta">
+        <a href="/schedule#plan">Plan zajęć ↗</a>
+        <a href="/" id="connection-nav" hidden>Połącz USOS ↗</a>
+        <button id="theme" class="quiet">Tryb ciemny</button>
+      </nav>
+    </header>
+    <main class="account-layout">
+      <section class="account-story">
+        <div class="eyebrow">TWOJA UCZELNIA. TWOJA PRZESTRZEŃ.</div>
+        <h1>Jedno konto.<br />Wszystko po Twojemu.</h1>
+        <p>Plan, oceny i sprawy na uczelni — w Twoim własnym panelu.</p>
+        <div class="story-points">
+          <div>
+            <span>01</span>
+            <section>
+              <h2>Twoje konto aplikacji</h2>
+              <p>Profil, do którego możesz wrócić po restarcie.</p>
+            </section>
+          </div>
+          <div>
+            <span>02</span>
+            <section>
+              <h2>Twoja przeglądarka logowania</h2>
+              <p>Klikasz „Połącz USOS”, a my uruchamiamy osobne Chromium.</p>
+            </section>
+          </div>
+          <div>
+            <span>03</span>
+            <section>
+              <h2>Twój dashboard</h2>
+              <p>
+                Logujesz się przez Microsoft i Authenticator. Po weryfikacji
+                przeglądarka się zamyka.
+              </p>
+            </section>
+          </div>
+        </div>
+        <div class="account-footnote">
+          LOCAL PREVIEW <span>·</span> Konta są trwałe. Połączenia USOS są
+          tymczasowe.
+        </div>
+      </section>
+      <section class="card account-card">
+        <p id="account-notice" role="status" aria-live="polite">
+          Sprawdzanie konta…
+        </p>
+        <div id="signed-out" hidden>
+          <div class="card-label">ZACZNIJ TUTAJ</div>
+          <h2 id="form-title">Zaloguj się</h2>
+          <p id="form-help">Użyj konta tej aplikacji, nie hasła Microsoft.</p>
+          <form id="account-form">
+            <label for="username">Login aplikacji</label>
+            <input
+              id="username"
+              name="username"
+              autocomplete="username"
+              minlength="3"
+              maxlength="40"
+              pattern="[a-zA-Z0-9_.\-]{3,40}"
+              required
+            />
+            <div id="name-field" hidden>
+              <label for="name">Nazwa profilu</label
+              ><input
+                id="name"
+                name="name"
+                autocomplete="nickname"
+                maxlength="80"
+              />
+            </div>
+            <label for="password">Hasło aplikacji</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="current-password"
+              minlength="8"
+              maxlength="256"
+              required
+            />
+            <small
+              >Minimum 8 znaków. Utwórz osobne hasło do tej aplikacji.</small
+            >
+            <button id="submit-account" class="primary" type="submit">
+              Zaloguj się →
+            </button>
+          </form>
+          <details><summary>Odzyskaj dostęp kodem awaryjnym</summary>
+            <form id="recover-form">
+              <label for="recover-username">Login</label><input id="recover-username" autocomplete="username" required />
+              <label for="recovery-code">Jednorazowy kod odzyskiwania</label><input id="recovery-code" type="password" autocomplete="off" required />
+              <label for="recover-password">Nowe hasło aplikacji</label><input id="recover-password" type="password" autocomplete="new-password" minlength="8" required />
+              <button class="secondary" type="submit">Odzyskaj konto</button>
+            </form>
+          </details>
+          <button id="switch-mode" class="quiet">Utwórz nowe konto</button>
+        </div>
+        <div id="signed-in" hidden>
+          <div class="card-label">MOJE KONTO</div>
+          <div class="account-avatar" aria-hidden="true">u.</div>
+          <h2 id="profile-name"></h2>
+          <p id="profile-login"></p>
+          <div id="connection-status" class="account-status">
+            Sprawdzanie połączenia…
+          </div>
+          <button class="primary account-link" id="launch-connection">
+            Połącz USOS / Uruchom Chromium ↗
+          </button>
+          <a
+            href="/dashboard/#student"
+            class="secondary account-link"
+            id="my-dashboard"
+            hidden
+            >Otwórz dashboard →</a
+          >
+          <p class="muted">
+            Kliknięcie uruchamia osobne Chromium i otwiera jego podgląd.
+          </p>
+          <hr />
+          <details><summary>Bezpieczeństwo konta</summary>
+            <form id="security-form">
+              <label for="current-password">Obecne hasło aplikacji</label><input id="current-password" type="password" autocomplete="current-password" required />
+              <label for="new-password">Nowe hasło (przy zmianie hasła)</label><input id="new-password" type="password" autocomplete="new-password" minlength="8" />
+              <button type="submit" name="action" value="password">Zmień hasło i zakończ sesje</button>
+              <button type="submit" name="action" value="recovery-code">Wygeneruj kod odzyskiwania</button>
+              <button type="submit" name="action" value="revoke">Zakończ wszystkie sesje</button>
+              <button type="submit" name="action" value="lock">Zablokuj konto (odblokowanie kodem)</button>
+            </form>
+            <p id="recovery-help" hidden>Zapisz ten jednorazowy kod w menedżerze haseł. Nowy kod zastępuje poprzedni; odzyskanie konta zużywa kod.</p>
+            <output id="generated-recovery" hidden></output>
+            <button id="hide-recovery" type="button" hidden>Ukryj kod</button>
+          </details>
+          <button id="logout" class="quiet danger">
+            Wyloguj i zamknij połączenie
+          </button>
+          <small
+            >Nowe logowanie na to samo konto kończy poprzednią sesję.
+            Wylogowanie usuwa połączenie USOS.</small
+          >
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

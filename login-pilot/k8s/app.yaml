@@ -1,0 +1,161 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: usos-app
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: v1.35
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: usos-app
+  namespace: usos-app
+automountServiceAccountToken: true
+---
+# App controls browser jobs, but cannot read secrets, exec into pods, or administer the cluster.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: usos-app-browser-controller
+  namespace: usos-login
+subjects:
+  - kind: ServiceAccount
+    name: usos-app
+    namespace: usos-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: browser-controller
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: accounts
+  namespace: usos-app
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: usos-app
+  namespace: usos-app
+spec:
+  # SQLite and session/lease state are single-process: do not scale this deployment.
+  replicas: 1
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels: {app: usos-app}
+  template:
+    metadata:
+      labels: {app: usos-app}
+    spec:
+      serviceAccountName: usos-app
+      terminationGracePeriodSeconds: 120
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: app
+          image: usos-app:2026-09-14-code-fixes-v2
+          imagePullPolicy: Never
+          ports:
+            - {name: http, containerPort: 8789}
+          env:
+            - {name: PILOT_PORT, value: "8789"}
+            - {name: PILOT_BIND_HOST, value: "0.0.0.0"}
+            - {name: PILOT_PUBLIC_ORIGIN, value: "http://127.0.0.1:8789"}
+            - {name: PILOT_ACCOUNTS_PATH, value: "/data/accounts/accounts.sqlite"}
+            - {name: WORKER_BACKEND, value: kubernetes}
+            - {name: USOS_IN_CLUSTER, value: "true"}
+            - {name: USOS_KUBECONFIG, value: /app/login-pilot/k8s/incluster.json}
+            - {name: USOS_WORKER_IMAGE, value: "usos-chromium:2026-09-14-security-v3"}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          resources:
+            requests: {cpu: 250m, memory: 384Mi}
+            limits: {cpu: "2", memory: 1Gi}
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: http
+              httpHeaders: [{name: Host, value: "127.0.0.1:8789"}]
+            periodSeconds: 3
+            failureThreshold: 40
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+              httpHeaders: [{name: Host, value: "127.0.0.1:8789"}]
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+              httpHeaders: [{name: Host, value: "127.0.0.1:8789"}]
+            periodSeconds: 15
+          volumeMounts:
+            - {name: accounts, mountPath: /data}
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: accounts
+          persistentVolumeClaim: {claimName: accounts}
+        - name: tmp
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: usos-app
+  namespace: usos-app
+spec:
+  type: ClusterIP
+  selector: {app: usos-app}
+  ports:
+    - {name: http, port: 8789, targetPort: http}
+---
+# Access currently uses authenticated kubectl port-forward, not a public ingress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: app-egress
+  namespace: usos-app
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels: {kubernetes.io/metadata.name: kube-system}
+          podSelector:
+            matchLabels: {k8s-app: kube-dns}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    # Dedicated Minikube API Service and its node endpoint (before/after DNAT).
+    - to:
+        - ipBlock: {cidr: 10.96.0.1/32}
+      ports: [{protocol: TCP, port: 443}]
+    - to:
+        - ipBlock: {cidr: 192.168.49.2/32}
+      ports: [{protocol: TCP, port: 8443}]
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, 100.64.0.0/10, 224.0.0.0/4]
+      ports:
+        - {protocol: TCP, port: 443}
+        - {protocol: TCP, port: 80}

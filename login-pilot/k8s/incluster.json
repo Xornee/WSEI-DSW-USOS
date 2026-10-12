@@ -1,0 +1,20 @@
+{
+  "apiVersion": "v1",
+  "kind": "Config",
+  "current-context": "usos-worker-controller",
+  "clusters": [{
+    "name": "usos-local",
+    "cluster": {
+      "server": "https://kubernetes.default.svc",
+      "certificate-authority": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    }
+  }],
+  "contexts": [{
+    "name": "usos-worker-controller",
+    "context": {"cluster": "usos-local", "user": "projected", "namespace": "usos-login"}
+  }],
+  "users": [{
+    "name": "projected",
+    "user": {"tokenFile": "/var/run/secrets/kubernetes.io/serviceaccount/token"}
+  }]
+}

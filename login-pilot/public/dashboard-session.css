@@ -1,0 +1,24 @@
+#connection-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 10px 28px;
+  background: #171b25;
+  color: #e9edf5;
+  font:
+    12px/1.5 system-ui,
+    sans-serif;
+}
+#connection-bar a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+#connection-bar a:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 4px;
+}

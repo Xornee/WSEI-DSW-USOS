@@ -1,0 +1,46 @@
+{
+  "name": "usos-local",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,web -c cyan,magenta \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "capture": "./scripts/capture.sh",
+    "start": "npm --prefix login-pilot start",
+    "build:dashboard": "npm --prefix login-pilot run build:dashboard",
+    "test:pilot": "npm --prefix login-pilot test",
+    "test:all": "npm test && npm run test:pilot",
+    "check:publication": "node scripts/check-publication.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.7",
+    "cheerio": "^1.0.0",
+    "hono": "^4.6.13",
+    "node-ical": "0.27.2",
+    "tough-cookie": "6.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "concurrently": "^9.1.0",
+    "lucide-react": "^0.468.0",
+    "motion": "^11.15.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  },
+  "engines": {
+    "node": ">=24 <25"
+  }
+}

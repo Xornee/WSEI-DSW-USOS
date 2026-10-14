@@ -13,6 +13,7 @@ import { EmptyState } from "../components/EmptyState";
 import { PageHeader } from "../components/PageHeader";
 import { ScreenSkeleton } from "../components/Skeleton";
 import { StateBanner } from "../components/StateBanner";
+import { WorkflowLink } from "../lib/workflows";
 import { useEndpoint } from "../lib/api";
 
 export function NewsScreen() {
@@ -34,14 +35,9 @@ export function NewsScreen() {
         loading={loading}
         onReload={reload}
         extra={
-          <a
-            className="button button-secondary"
-            href={UNIVERSITY_NEWS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Otwórz USOSweb <ArrowUpRight size={15} />
-          </a>
+          <WorkflowLink entry="news" link={{label: "Pełna tablica komunikatów", url: UNIVERSITY_NEWS_URL}} className="button button-secondary">
+            Pełna tablica komunikatów <ArrowUpRight size={15} />
+          </WorkflowLink>
         }
       />
       <StateBanner meta={meta} error={error} onReload={reload} />
@@ -94,7 +90,7 @@ export function NewsScreen() {
                 description={
                   query
                     ? "Spróbuj innego hasła lub wyczyść wyszukiwanie."
-                    : "Sprawdź ponownie później lub otwórz stronę USOSweb."
+                    : "Odśwież komunikaty później."
                 }
               />
               {query && (
@@ -111,8 +107,7 @@ export function NewsScreen() {
           )}
           <p className="section-note">
             Kolejność zgodna ze stroną uczelni. Źródło nie podaje dat publikacji
-            poszczególnych komunikatów. Adresy ukryte przez uczelnię odczytasz
-            na stronie źródłowej.
+            poszczególnych komunikatów. Treść komunikatów i dalsze kroki otwierają się tutaj.
           </p>
         </>
       )}
@@ -145,26 +140,16 @@ function NewsCard({ article, index }: { article: NewsArticle; index: number }) {
               <div className="news-attachments">
                 <h3>Linki i załączniki</h3>
                 {article.links.map((link) => (
-                  <a
-                    key={link.url}
-                    href={link.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
+                  <WorkflowLink key={link.url} link={link}>
                     {link.label}
                     <ArrowUpRight size={14} />
-                  </a>
+                  </WorkflowLink>
                 ))}
               </div>
             )}
-            <a
-              className="text-link"
-              href={UNIVERSITY_NEWS_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Pełny komunikat w USOSweb <ArrowUpRight size={14} />
-            </a>
+            <WorkflowLink entry="news" link={{label: "Pełna tablica komunikatów", url: UNIVERSITY_NEWS_URL}} className="text-link">
+              Pełna tablica komunikatów <ArrowUpRight size={14} />
+            </WorkflowLink>
           </div>
         )}
         <button

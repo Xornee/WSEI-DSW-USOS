@@ -2533,3 +2533,45 @@ code {
 .timetable-selection p { margin: 0; }
 .timetable-candidates { display: flex; flex-wrap: wrap; gap: 12px; }
 .timetable-candidates .button { white-space: normal; text-align: left; height: auto; min-height: 40px; }
+
+/* Native student workflows reuse the dashboard's existing surface and controls. */
+.workflow-screen .page-header h1 { margin-top: 16px; }
+.workflow-prose { max-width: 72ch; line-height: 1.65; overflow-wrap: anywhere; }
+.workflow-prose p + p { margin-top: 12px; }
+.workflow-forms, .workflow-links { display: flex; flex-direction: column; gap: 24px; }
+.workflow-links { flex-direction: row; flex-wrap: wrap; gap: 12px; }
+.workflow-form { background: var(--palette-fcfcfc); border: 1px solid var(--line); border-radius: 12px; padding: 24px; max-width: 760px; }
+.workflow-form h2 { font-size: 20px; margin: 0 0 24px; }
+.workflow-form fieldset { border: 0; padding: 0; margin: 0 0 24px; display: grid; gap: 20px; min-width: 0; }
+.workflow-field { display: grid; gap: 8px; }
+.workflow-field label { font-weight: 600; }
+.workflow-field label span { font-weight: 400; }
+.workflow-field input:not([type=checkbox]):not([type=radio]), .workflow-field select, .workflow-field textarea {
+  font: inherit; color: var(--ink); background: var(--palette-fcfcfc); border: 1px solid var(--line); border-radius: 8px;
+  padding: 10px 12px; width: 100%; min-width: 0; box-sizing: border-box; accent-color: var(--ink);
+}
+.workflow-field input[type=checkbox], .workflow-field input[type=radio] { width: 20px; height: 20px; }
+.workflow-field textarea { resize: vertical; }
+.workflow-field input:focus-visible, .workflow-field select:focus-visible, .workflow-field textarea:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.workflow-review { border-top: 1px solid var(--line); padding-top: 24px; }
+.workflow-review h3 { font-size: 18px; margin: 0 0 12px; }
+.workflow-review dl { margin: 20px 0; display: grid; gap: 16px; }
+.workflow-review dt { font-weight: 600; }
+.workflow-review dd { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.workflow-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.workflow-error { color: var(--ink); background: var(--palette-fcfcfc); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-top: 12px; }
+.workflow-unavailable { font-size: 13px; color: var(--muted); }
+.workflow-form :disabled { cursor: not-allowed; opacity: .65; }
+@media (max-width: 760px) { .workflow-form { padding: 16px; } .workflow-actions .button { width: 100%; justify-content: center; } }
+@media (max-width: 760px) {
+  .app-shell:has(.workflow-screen) { min-width: 0; }
+  .app-shell:has(.workflow-screen) .sidebar { display: none; }
+  .app-shell:has(.workflow-screen) .page-content { padding: 20px 16px; }
+  .workflow-screen .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .workflow-screen .table-scroll { max-width: calc(100vw - 64px); }
+}
+body:has(.workflow-screen) { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+body:has(.workflow-screen) #root { flex: 1; min-height: 0; }
+.app-shell:has(.workflow-screen) { height: 100%; }
+.workflow-screen .source-link { display: inline-flex; margin: 8px 12px 0 0; }
+.workflow-screen button.source-link, .source-section button.source-link { background: transparent; border: 0; padding: 0; font: inherit; text-align: left; }

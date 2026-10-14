@@ -206,3 +206,9 @@ login-pilot/k8s/                wcześniejsza, opcjonalna implementacja Kubernet
 Aktualny start opisuje ten README. [Architektura](docs/01-architektura.md), [źródła danych](docs/02-zrodla-danych.md), [API](docs/03-api.md), [nowe moduły](docs/04-dodawanie-modulu.md), [problemy](docs/05-problemy.md), [frontend](docs/06-frontend-i-publiczne-zrodla.md), [panel](docs/07-panel-studenta.md), [harmonogram](docs/08-harmonogram-i-docker.md).
 
 Pliki Kubernetes zachowano jako część projektu, ale zwykły start i testy npm nie uruchamiają klastra. Testy `*-live.mjs` są osobnymi, opt-in narzędziami, nie częścią instrukcji startu Dockerowego.
+
+## Workflowy bez przechodzenia do USOSweb
+
+Szczegóły spraw, katalog przedmiotów i osób, strony rejestracji, standardowe formularze HTML oraz dokumenty otwierają się w lokalnym panelu. Zmiany wymagają przeglądu pól i osobnego potwierdzenia. Sesja uczelniana i ukryte pola formularza pozostają na serwerze.
+
+Obsługa niestandardowych kontrolek JavaScript zależy od kalibracji danej strony. Testy syntetyczne nie zastępują sprawdzenia rzeczywistych formularzy po logowaniu uczelnianym. Lista obsługiwanych rodzajów pól, ograniczenia i weryfikacja: [workflowy w aplikacji](docs/09-workflowy-w-aplikacji.md).

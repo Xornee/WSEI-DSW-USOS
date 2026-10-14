@@ -39,6 +39,8 @@ import { GradesScreen } from "./screens/Grades";
 import { HomeScreen } from "./screens/Home";
 import { PlanScreen } from "./screens/Plan";
 import { StudentScreen } from "./screens/Student";
+import { WorkflowScreen } from './screens/Workflow';
+import { useWorkflow } from './lib/workflows';
 
 const TABS = [
   {
@@ -119,6 +121,7 @@ function currentTab(): TabId {
 }
 
 export default function App() {
+  const workflow = useWorkflow();
   const [active, setActive] = useState<TabId>(currentTab);
   const session = useSession(!publicSchedule);
   const { theme, toggleTheme } = useTheme();
@@ -131,9 +134,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    document.title = `${TABS.find((tab) => tab.id === active)!.label} · USOS lokalnie`;
+    document.title = `${workflow ? "Sprawa studenta" : TABS.find((tab) => tab.id === active)!.label} · USOS lokalnie`;
     mainRef.current?.scrollTo({ top: 0 });
-  }, [active]);
+  }, [active, workflow?.kind, workflow?.value]);
 
   const status = publicSchedule ? "Plan publiczny · bez logowania" : !session
     ? "Status połączenia nieznany"
@@ -224,7 +227,7 @@ export default function App() {
           <div className="breadcrumb">
             <span>Przestrzeń studenta</span>
             <ChevronRight size={14} />
-            <strong>{TABS.find((tab) => tab.id === active)!.label}</strong>
+            <strong>{workflow ? 'Sprawa studenta' : TABS.find((tab) => tab.id === active)!.label}</strong>
           </div>
           <div className="topbar-actions">
             <button
@@ -258,6 +261,7 @@ export default function App() {
           tabIndex={-1}
         >
           <div className="page-content">
+            {workflow ? <WorkflowScreen key={`${workflow.kind}:${workflow.value}`} /> : <>
             {active === "home" && (
               <HomeScreen userId={session?.userId ?? null} />
             )}
@@ -274,6 +278,7 @@ export default function App() {
             {active === "documents" && <DocumentsScreen />}
             {active === "progress" && <ProgressScreen />}
             {active === "contacts" && <ContactsScreen />}
+            </>}
             <footer className="page-footer">
               <span>
                 USOS lokalnie <span className="footer-separator">/</span> Twoja

@@ -9,6 +9,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { BrowserWorker } from "./browser.mjs";
+import { WorkflowError } from './workflows.mjs';
 import {
   DashboardConnection,
   DashboardError,
@@ -446,6 +447,61 @@ export async function createPilot({
       return json(401, { error: "Session expired. Reload this page." });
     if (req.method === "GET" && path === "/api/status")
       return json(200, status(session));
+    if (requestUrl.pathname === '/api/workflows/submit' || requestUrl.pathname === '/api/workflows/download') {
+      const worker = session.worker;
+      let locked = false;
+      try {
+        if (worker?.state !== 'connected') throw new WorkflowError(401, 'Połącz USOS ponownie.');
+        session.dashboard ??= makeDashboard(worker);
+        if (requestUrl.pathname.endsWith('/download')) {
+          if (req.method !== 'GET') return json(405, { error: 'Wymagane pobranie GET.' });
+          const result = await session.dashboard.workflows.download(requestUrl.searchParams.get('target'));
+          if (session.worker !== worker || worker.state !== 'connected') throw new WorkflowError(401, 'Sesja została rozłączona.');
+          res.writeHead(200, { 'Content-Type': result.type,
+            'Content-Disposition': `attachment; filename="${result.filename.replace(/[^a-zA-Z0-9_. -]/g, '_')}"`,
+            'Content-Length': result.bytes.length });
+          return res.end(result.bytes);
+        }
+        if (req.method !== 'POST') return json(405, { error: 'Wymagane wysłanie POST.' });
+        if (!validOrigin(req) || req.headers['x-usos-connection'] !== session.generation)
+          throw new WorkflowError(403, 'Odśwież panel i potwierdź czynność w aktualnej sesji.');
+        if (session.busy) throw new WorkflowError(409, 'Inna czynność jest w toku.');
+        const type = req.headers['content-type'] || '';
+        if (!type.startsWith('application/json') && !type.startsWith('multipart/form-data;'))
+          throw new WorkflowError(415, 'Nieprawidłowy format formularza.');
+        const limit = type.startsWith('multipart/') ? 10_000_000 : 100_000;
+        if (Number(req.headers['content-length']) > limit) throw new WorkflowError(413, 'Formularz jest zbyt duży.');
+        session.busy = true; session.operation = '/api/workflows/submit'; locked = true;
+        const chunks = []; let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > limit) throw new WorkflowError(413, 'Formularz jest zbyt duży.');
+          chunks.push(chunk);
+        }
+        const body = Buffer.concat(chunks, size);
+        let input, files = [];
+        try {
+          if (type.startsWith('multipart/')) {
+            const data = await new Request(origin, { method: 'POST', headers: { 'content-type': type }, body }).formData();
+            if (data.getAll('payload').length !== 1 || typeof data.get('payload') !== 'string') throw new Error();
+            input = JSON.parse(data.get('payload'));
+            for (const [name, blob] of data) if (name !== 'payload') {
+              if (!name.startsWith('file:') || typeof blob === 'string') throw new Error();
+              files.push({ name: name.slice(5), blob });
+            }
+            if (files.length > 8) throw new Error();
+          } else input = JSON.parse(body.toString('utf8'));
+        } catch { throw new WorkflowError(400, 'Nieprawidłowy formularz.'); }
+        const data = await session.dashboard.workflows.submit(input, files);
+        if (session.worker !== worker || worker.state !== 'connected') throw new WorkflowError(401, 'Sesja została rozłączona.');
+        return json(200, { ok: true, data, error: null, meta: { source: 'live', stale: false, fetchedAt: new Date().toISOString() } });
+      } catch (error) {
+        return json(error instanceof WorkflowError || error instanceof DashboardError ? error.status : 502, {
+          ok: false, data: null, error: error instanceof WorkflowError || error instanceof DashboardError ? error.message : 'Sprawdź stan sprawy — odpowiedź czynności nie została potwierdzona.',
+          meta: { source: 'live', stale: false, fetchedAt: new Date().toISOString() },
+        });
+      } finally { if (locked) { session.busy = false; session.operation = null; } }
+    }
     if (req.method === "GET" && path.startsWith("/api/")) {
       const worker = session.worker;
       try {
@@ -457,11 +513,11 @@ export async function createPilot({
           throw new DashboardError(401, "Sesja została rozłączona.");
         return json(200, data);
       } catch (error) {
-        return json(error instanceof DashboardError || error instanceof TimetableError ? error.status : 502, {
+        return json(error instanceof DashboardError || error instanceof TimetableError || error instanceof WorkflowError ? error.status : 502, {
           ok: false,
           data: null,
           error:
-            (error instanceof DashboardError || error instanceof TimetableError)
+            (error instanceof DashboardError || error instanceof TimetableError || error instanceof WorkflowError)
               ? error.message
               : "Dane chwilowo niedostępne. Spróbuj ponownie.",
           meta: {

@@ -1,6 +1,7 @@
 import { ArrowUpRight, Check, Copy, Info } from "lucide-react";
 import { useState } from "react";
 import type { AccountSection, SourceTable } from "../../../shared/sections";
+import { WorkflowLink } from "../lib/workflows";
 import { Card } from "./Card";
 import { EmptyState } from "./EmptyState";
 
@@ -66,16 +67,14 @@ export function SourceTableView({
                       {copyable && cell.text && <CopyValue value={cell.text} />}
                     </div>
                     {cell.links.map((link) => (
-                      <a
+                      <WorkflowLink
+                        link={link}
                         className="source-link"
                         key={link.url}
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
                       >
                         {link.label}
                         <ArrowUpRight size={12} />
-                      </a>
+                      </WorkflowLink>
                     ))}
                   </td>
                 ))}
@@ -127,16 +126,14 @@ export function SectionData({
           <p className="source-text">{record.text}</p>
           <div className="source-record-links">
             {record.links.map((link) => (
-              <a
+              <WorkflowLink
+                link={link}
                 key={link.url}
                 className="button button-secondary"
-                href={link.url}
-                target="_blank"
-                rel="noopener noreferrer"
               >
                 {link.label}
                 <ArrowUpRight size={14} />
-              </a>
+              </WorkflowLink>
             ))}
           </div>
         </Card>
@@ -147,16 +144,17 @@ export function SectionData({
             title={
               data.state === "empty"
                 ? "Brak pozycji w tej sekcji"
-                : "Informacje dostępne w USOSweb"
+                : "Szczegóły sprawy"
             }
             description={
               data.state === "empty"
                 ? "Pobrane źródło nie zawiera pozycji do wyświetlenia. Komunikat uczelni znajdziesz powyżej."
-                : "Źródło zawiera opis lub formularz, a nie listę rekordów. Szczegóły i dostępne działania sprawdzisz w USOSweb."
+                : "Otwórz szczegóły sprawy, aby przeczytać pełny opis i wypełnić dostępny formularz tutaj."
             }
           />
         </Card>
       )}
+      {data.hasForms && data.workflow && <WorkflowLink link={{ label: "Wypełnij formularz", url: data.sourceUrl, workflow: data.workflow }} className="button button-primary" />}
       <div className="source-bottom-links">
         {data.links
           .filter(
@@ -174,16 +172,14 @@ export function SectionData({
           )
           .slice(0, 8)
           .map((link) => (
-            <a
+            <WorkflowLink
+              link={link}
               key={link.url}
               className="text-link"
-              href={link.url}
-              target="_blank"
-              rel="noopener noreferrer"
             >
               {link.label}
               <ArrowUpRight size={13} />
-            </a>
+            </WorkflowLink>
           ))}
       </div>
     </div>

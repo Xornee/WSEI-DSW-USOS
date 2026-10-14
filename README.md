@@ -212,3 +212,7 @@ Pliki Kubernetes zachowano jako część projektu, ale zwykły start i testy npm
 Szczegóły spraw, katalog przedmiotów i osób, strony rejestracji, standardowe formularze HTML oraz dokumenty otwierają się w lokalnym panelu. Zmiany wymagają przeglądu pól i osobnego potwierdzenia. Sesja uczelniana i ukryte pola formularza pozostają na serwerze.
 
 Obsługa niestandardowych kontrolek JavaScript zależy od kalibracji danej strony. Testy syntetyczne nie zastępują sprawdzenia rzeczywistych formularzy po logowaniu uczelnianym. Lista obsługiwanych rodzajów pól, ograniczenia i weryfikacja: [workflowy w aplikacji](docs/09-workflowy-w-aplikacji.md).
+
+### Mój plan i sprawy uczelniane
+
+Wspólny wybór grup dla Start/Plan/ICS, preferencje osobno dla konta i semestru, eksport kalendarza, mobilna nawigacja i wykrywanie kolejnych modułów USOS wewnątrz panelu: [instrukcja i granice weryfikacji](docs/10-moj-plan-i-moduly.md). Zmiana grup planu nie zapisuje ani nie wypisuje z zajęć na uczelni.

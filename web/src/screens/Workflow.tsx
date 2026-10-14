@@ -6,6 +6,7 @@ import { useWorkflow, WorkflowLink, workflowHref } from '../lib/workflows'
 import { SourceTableView } from '../components/SourceData'
 import { ScreenSkeleton } from '../components/Skeleton'
 import { StateBanner } from '../components/StateBanner'
+import { deleteDraft, readDraft, writeDraft } from '../lib/workflow-drafts'
 
 export function WorkflowScreen() {
   const request = useWorkflow()!
@@ -43,6 +44,8 @@ function NativeForm({ form }: { form: WorkflowForm }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [consumed, setConsumed] = useState(false)
+  const [draft, setDraft] = useState(() => readDraft(form.draftKey))
+  const [revision, setRevision] = useState(0)
   async function send(data: FormData, confirmed: boolean) {
     if (busy || consumed) return
     setBusy(true); setError('')
@@ -68,31 +71,39 @@ function NativeForm({ form }: { form: WorkflowForm }) {
         throw new Error(result.error || 'Odczytaj aktualny status sprawy.')
       }
       setConsumed(true)
+      deleteDraft(form.draftKey)
       location.hash = workflowHref('target', result.data.target)
     } catch (failure) {
       if (!(failure instanceof Error) || failure instanceof TypeError) setConsumed(true)
       setError(failure instanceof Error ? failure.message : 'Sprawdź status sprawy — odpowiedź nie została potwierdzona.')
     } finally { setBusy(false) }
   }
-  return <form className="workflow-form" onSubmit={event => {
+  return <form key={revision} className="workflow-form" onChange={event => {
+    const data = new FormData(event.currentTarget), values: Record<string, string[]> = Object.create(null)
+    for (const field of form.fields) if (field.type !== 'file' && !field.readonly)
+      values[field.name] = data.getAll(field.name).filter((value): value is string => typeof value === 'string')
+    writeDraft(form.draftKey, values)
+  }} onSubmit={event => {
     event.preventDefault(); if (busy || consumed) return
     const data = new FormData(event.currentTarget)
     if (form.changesAccount) { setReview(data); setError('') } else void send(data, false)
   }}>
     <h2>{form.title}</h2>
+    {draft && <p role="status">Przywrócono szkic z tej sesji. Sprawdź dane i ponownie wybierz załączniki przed potwierdzeniem.</p>}
     <fieldset disabled={busy || consumed || !!review}>
       {form.fields.map((field, index) => {
         const id = `${prefix}-${index}`, common = { id, name: field.name, required: field.required,
           readOnly: field.readonly, 'aria-describedby': field.required ? `${id}-required` : undefined }
+        const saved = !field.readonly ? draft?.[field.name] : undefined
         return <div className="workflow-field" key={index}>
           <label htmlFor={id}>{field.label}{field.required && <span id={`${id}-required`}> (wymagane)</span>}</label>
           {field.type === 'select' ? <select {...common} multiple={field.multiple}
-            defaultValue={field.multiple ? field.options.filter(option => option.selected).map(option => option.value) : field.value}>
+            defaultValue={field.multiple ? saved || field.options.filter(option => option.selected).map(option => option.value) : saved?.[0] ?? field.value}>
             {field.options.map((option, i) => <option key={i} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-          </select> : field.type === 'textarea' ? <textarea {...common} defaultValue={field.value} maxLength={field.maxLength} rows={5} />
-            : ['checkbox', 'radio'].includes(field.type) ? <input {...common} type={field.type} value={field.options[0]?.value || 'on'} defaultChecked={!!field.value} />
+          </select> : field.type === 'textarea' ? <textarea {...common} defaultValue={saved?.[0] ?? field.value} maxLength={field.maxLength} rows={5} />
+            : ['checkbox', 'radio'].includes(field.type) ? <input {...common} type={field.type} value={field.options[0]?.value || 'on'} defaultChecked={saved ? saved.includes(field.options[0]?.value || 'on') : !!field.value} />
               : field.type === 'file' ? <input {...common} type="file" multiple={field.multiple} accept={field.accept} />
-                : <input {...common} type={field.type} defaultValue={field.value} maxLength={field.maxLength} min={field.min} max={field.max} step={field.step} />}
+                : <input {...common} type={field.type} defaultValue={saved?.[0] ?? field.value} maxLength={field.maxLength} min={field.min} max={field.max} step={field.step} />}
         </div>
       })}
     </fieldset>
@@ -104,6 +115,9 @@ function NativeForm({ form }: { form: WorkflowForm }) {
         <button type="button" className="button button-secondary" disabled={busy || consumed} onClick={() => setReview(null)}>Wróć do edycji</button></div>
     </section> : <button type="submit" className="button button-primary" disabled={busy || consumed}>{busy ? 'Pobieranie…' : form.submitLabel}</button>}
     {error && <p className="workflow-error" role="alert">{error}</p>}
+    {!busy && !consumed && !review && <button type="button" className="text-link" onClick={() => {
+      deleteDraft(form.draftKey); setDraft(undefined); setRevision(value => value + 1)
+    }}>Wyczyść szkic</button>}
     {consumed && <p role="status">Odczytaj ponownie szczegóły sprawy przed następną czynnością.</p>}
   </form>
 }

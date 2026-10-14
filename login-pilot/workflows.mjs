@@ -1,10 +1,11 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHmac } from 'node:crypto';
 import { load } from 'cheerio';
 import { tsImport } from 'tsx/esm/api';
 import { accountId, HOME } from './browser.mjs';
 
 const { ACCOUNT_SECTIONS } = await tsImport('../shared/sections.ts', import.meta.url);
 const { UNIVERSITY_RESOURCES } = await tsImport('../shared/university.ts', import.meta.url);
+const { STUDENT_SERVICES } = await tsImport('../shared/student-services.ts', import.meta.url);
 const { parseAccountSection, navigationLink } = await tsImport('../server/usos/scrape/sections.ts', import.meta.url);
 const ORIGIN = 'https://usosweb.ideis.pl';
 const text = value => value.replace(/\s+/g, ' ').trim();
@@ -20,10 +21,13 @@ export const WORKFLOW_ENTRIES = new Map([
   ...UNIVERSITY_RESOURCES.map(resource => [`resource:${resource.id}`, { title: resource.title, url: resource.url }]),
 ]);
 const READ_ROOTS = ['katalog2/przedmioty/', 'katalog2/osoby/', 'katalog2/jednostki/', 'dodatki/platnosci/',
-  'dodatki/wnioski/', 'dla_stud/rejestracja/', 'dla_stud/studia/', 'news/'];
-const WRITE_ROOTS = ['dodatki/wnioski/', 'dla_stud/rejestracja/', 'dla_stud/studia/stypendia/', 'dla_stud/studia/mlegitymacja/'];
+  'dodatki/wnioski/', 'dla_stud/rejestracja/', 'dla_stud/studia/', 'news/',
+  ...STUDENT_SERVICES.flatMap(service => service.roots).filter(root => root.endsWith('/'))];
+const WRITE_ROOTS = ['dodatki/wnioski/', 'dla_stud/rejestracja/', 'dla_stud/studia/stypendia/', 'dla_stud/studia/mlegitymacja/',
+  ...STUDENT_SERVICES.filter(service => ['allocations', 'surveys', 'exams', 'meetings', 'mail', 'internships', 'clearances', 'statements', 'notifications'].includes(service.id))
+    .flatMap(service => service.roots).filter(root => root.endsWith('/'))];
 const READ_EXACT = new Set(['home/grupy', 'home/index']);
-const READ_NAME = /^(?:index|default|lista|list|kalendarz|przedmioty|grupy|details|view|show|szczegoly|pokaz\w*|szukaj\w*|wyszukaj\w*|naleznosci\w*|wplaty\w*|kontaWirtualne|planyRatalne|stypendia|pobierz\w*|download\w*|pdf\w*|druk\w*|eksport\w*|kontakt)$/i;
+const READ_NAME = /^(?:index|default|lista|list|kalendarz|przedmioty|grupy|grupyDziekanskie|rankingi|wyborJednostki|details|view|show|szczegoly|pokaz\w*|szukaj\w*|wyszukaj\w*|naleznosci\w*|wplaty\w*|kontaWirtualne|planyRatalne|stypendia|pobierz\w*|download\w*|pdf\w*|druk\w*|eksport\w*|kontakt)$/i;
 const MUTATION = /(?:usun|usuń|dodaj|zapisz|zarejestr|wyrejestr|rejestruj|unregister|register|delete|accept|potwierdz|zatwierdz|wyslij|wyślij|submit|save|update|anuluj)/i;
 const FORBIDDEN = /(?:logowanie|wyloguj|logout|password|haslo|hasło|session|token)/i;
 const HIDDEN_NAME = /csrf|token|session|password|haslo/i;
@@ -59,7 +63,7 @@ const controlTypes = new Set(['text', 'email', 'number', 'date', 'tel', 'url', '
 
 /** Connection-local capability store: URLs/hidden fields never come from the client. */
 export class WorkflowConnection {
-  constructor(connection) { this.connection = connection; this.targets = new Map(); this.forms = new Map(); }
+  constructor(connection) { this.connection = connection; this.targets = new Map(); this.forms = new Map(); this.draftSalt = randomBytes(32); }
   clear() { this.targets.clear(); this.forms.clear(); }
   prune(map, limit) {
     for (const [id, value] of map) if (Date.now() > value.expires) map.delete(id);
@@ -125,7 +129,12 @@ export class WorkflowConnection {
     this.prune(this.forms, MAX_FORMS);
     const id = randomBytes(24).toString('hex');
     this.forms.set(id, { ...definition, expires: Date.now() + TTL });
-    return { id, title: definition.title, submitLabel: definition.submitLabel,
+    const url = new URL(definition.url);
+    for (const key of [...url.searchParams.keys()]) if (HIDDEN_NAME.test(key)) url.searchParams.delete(key);
+    const draftKey = createHmac('sha256', this.draftSalt).update(JSON.stringify([url.href, definition.method, definition.title, definition.submitLabel,
+      definition.hidden.filter(([name]) => !HIDDEN_NAME.test(name)),
+      definition.fields.map(field => [field.name, field.type, field.options.map(option => option.value)])])).digest('hex');
+    return { id, draftKey, title: definition.title, submitLabel: definition.submitLabel,
       changesAccount: definition.method === 'POST' || definition.mutation, fields: definition.fields };
   }
   parseForms(html, base) {

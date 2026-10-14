@@ -4,6 +4,8 @@ import { tsImport } from "tsx/esm/api";
 import { accountId } from "./browser.mjs";
 import { load } from "cheerio";
 import { WorkflowConnection, workflowUrl, WorkflowError } from './workflows.mjs';
+import { personalizePlan, planScope, groupOptions, validateChoices, PlanPreferenceError } from './personal-plan.mjs';
+import { discoverStudentServices } from './student-services.mjs';
 
 export function exportCalendarUrl(html, expectedAccount) {
   const fields = load(html)("#plan_export_link");
@@ -156,9 +158,11 @@ const envelope = (data, source = "live", at = Date.now()) => ({
 export class DashboardConnection {
   constructor(
     worker,
-    { schedule = createScheduler(), fetchPublic = fetch, ttl = 60_000, timetable = null, trackCatalog = null } = {},
+    { schedule = createScheduler(), fetchPublic = fetch, ttl = 60_000, timetable = null, trackCatalog = null, planPreferences = null } = {},
   ) {
     this.worker = worker;
+    const preferences = new Map();
+    this.planPreferences = planPreferences || { get: scope => preferences.get(scope) || {}, set: (scope, value) => preferences.set(scope, value) };
     this.timetable = timetable;
     this.trackCatalog = trackCatalog ?? (timetable ? new TrackCatalog(timetable) : null);
     this.controller = new AbortController();
@@ -405,7 +409,7 @@ export class DashboardConnection {
   stages() {
     return this.cached("stages", async () => parseStages(await this.privatePage("dla_stud/studia/zaliczenia/index")));
   }
-  async plan(requestedId) {
+  async rawPlan(requestedId) {
     this.assertConnected();
     if (this.timetable) {
       const selection = await this.cached("timetable-selection", async () => {
@@ -430,9 +434,35 @@ export class DashboardConnection {
       return parseIcal(body);
     });
   }
+  async plan(requestedId) {
+    const result = await this.rawPlan(requestedId);
+    this.assertConnected();
+    if (!result.data.from || !result.data.to) return result;
+    const scope = planScope(result.data, this.worker.expectedAccount);
+    return { ...result, data: personalizePlan(result.data, this.worker.expectedAccount, this.planPreferences.get(scope)) };
+  }
+  async setPlanGroups(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).some(key => !['trackId', 'scope', 'choices'].includes(key)) ||
+        (input.trackId !== undefined && (typeof input.trackId !== 'string' || !/^[1-9]\d{0,5}$/.test(input.trackId))))
+      throw new PlanPreferenceError(400, 'Nieprawidłowy wybór planu.');
+    await this.privatePage('home/index');
+    const result = await this.rawPlan(input.trackId);
+    this.assertConnected();
+    const scope = planScope(result.data, this.worker.expectedAccount);
+    if (!result.data.from || !result.data.to || input.scope !== scope)
+      throw new PlanPreferenceError(409, 'Zakres planu zmienił się. Odśwież plan przed zapisaniem grup.');
+    const choices = validateChoices(input.choices, groupOptions(result.data.entries));
+    this.planPreferences.set(scope, choices);
+    return { ...result, data: personalizePlan(result.data, this.worker.expectedAccount, choices) };
+  }
   async handle(url) {
     this.assertConnected();
     const path = url.pathname;
+    if (path === '/api/student-services') {
+      const html = await this.privatePage('dla_stud/index');
+      return envelope(discoverStudentServices(html, this.workflows, 'https://usosweb.ideis.pl/kontroler.php?_action=dla_stud/index'));
+    }
     if (path === '/api/workflows') {
       if ([...url.searchParams.keys()].some(key => !['entry', 'target', 'refresh'].includes(key)) ||
           [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length !== 1) ||
@@ -457,6 +487,7 @@ export class DashboardConnection {
       return envelope({
         greeting: student.data.displayName?.split(" ")[0] ?? null,
         timetableSelection: plan.data.selection,
+        personalPlan: plan.data.personal && { state: plan.data.personal.state, message: plan.data.personal.message },
         nextClass:
           plan.data.entries.find((entry) => new Date(entry.start) > now) ??
           null,

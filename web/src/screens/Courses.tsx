@@ -29,6 +29,7 @@ export function CoursesScreen() {
         </WorkflowLink>
       </header>
       <div className="module-tabs" aria-label="Widok przedmiotów">
+        <a className="button button-secondary" href="#services">Podpięcia i ECTS</a>
         <button
           aria-pressed={view === 'current'}
           onClick={() => setView('current')}

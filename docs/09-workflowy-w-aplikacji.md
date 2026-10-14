@@ -39,3 +39,11 @@ npm --prefix login-pilot test
 ```
 
 `login-pilot/test/workflows.test.mjs` sprawdza izolację kont, Origin/generację, potwierdzanie zmian, walidację pól, pojedyncze wykonanie, brak ponawiania po timeout, utratę sesji, redirect, upload i pobieranie. Test React/Chromium przechodzi od modułu do wyniku czynności bez nawigowania do USOSweb. Układ strony, źródła danych i parsowanie bazowe pozostają oddzielone od adaptera workflowów.
+
+## Sprawy uczelniane i wykrywanie modułów
+
+Widok `#services` pobiera `GET /api/student-services` z bieżącego konta. Backend odczytuje menu `dla_stud/index`, rozpoznaje odnośniki do podpięć/ECTS, ankiet, egzaminów, grup dziekańskich, rankingów, spotkań, USOSmail, praktyk, obiegówek, oświadczeń i powiadomień. Do interfejsu trafia jedynie capability powiązane z połączeniem. Inwentaryzacja nie odwiedza zgadywanych adresów, nie wykonuje zapisów i nie traktuje nieobecnego odnośnika jako dowodu braku uprawnień.
+
+Rozpoznany moduł otwiera rzeczywistą stronę wewnątrz aplikacji. Adapter przyjmuje standardowe formularze wymienionych modułów wyłącznie odkryte w tej sesji; obowiązują potwierdzenie, kontrola tożsamości i pojedyncze wykonanie. Układy JS/AJAX wymagają kalibracji, a moduły niewidoczne w menu mają stan „Nie wykryto w menu konta”. To wykrywanie i adapter formularzy, nie deklaracja pełnej zgodności z każdą wersją USOSweb. Wiadomość zwrócona przez serwer jest pokazywana dosłownie jako treść źródła; HTTP 200 nie dowodzi przyjęcia biznesowego.
+
+Szkic pól formularza przetrwa zmianę zakładki i ponowne otwarcie tego samego formularza w bieżącej sesji. Klucz obejmuje konto/połączenie, czynność, identyfikatory sprawy i schemat pól. Pamięć jest ulotna (do 20 szkiców, 30 minut), bez localStorage/sessionStorage, ukrytych pól/CSRF i załączników. Pełne przeładowanie, nowe połączenie i wygaśnięcie sesji kończą tę ciągłość. Przywrócenie nigdy nie wysyła formularza ani nie przywraca wcześniejszego potwierdzenia. Załącznik trzeba wskazać ponownie.

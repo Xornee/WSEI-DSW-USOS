@@ -233,7 +233,7 @@ svg {
 .app-shell {
   display: flex;
   height: 100dvh;
-  min-width: 1024px;
+  min-width: 0;
   overflow: hidden;
 }
 .sidebar {
@@ -2575,3 +2575,62 @@ body:has(.workflow-screen) #root { flex: 1; min-height: 0; }
 .app-shell:has(.workflow-screen) { height: 100%; }
 .workflow-screen .source-link { display: inline-flex; margin: 8px 12px 0 0; }
 .workflow-screen button.source-link, .source-section button.source-link { background: transparent; border: 0; padding: 0; font: inherit; text-align: left; }
+
+.personal-groups { padding: 24px; margin-bottom: 24px; }
+.personal-groups h2 { font-size: 18px; margin: 0 0 12px; }
+.personal-groups p { margin: 12px 0; line-height: 1.6; color: var(--muted); }
+.personal-groups summary { cursor: pointer; font-weight: 600; padding: 12px 0; }
+.personal-group-options { border: 0; padding: 0; margin: 20px 0; display: grid; gap: 20px; }
+.personal-group-options fieldset { border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
+.personal-group-options legend { padding: 0 8px; font-weight: 600; }
+.personal-group-options label { display: flex; align-items: center; gap: 12px; min-height: 44px; overflow-wrap: anywhere; }
+.service-list { list-style: none; margin: 28px 0; padding: 0; }
+.service-list li { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 0; border-bottom: 1px solid var(--line); }
+.service-list h2 { font-size: 18px; margin: 0 0 8px; }
+.service-list p { line-height: 1.6; margin: 0; max-width: 65ch; color: var(--muted); }
+.service-status { font-size: 13px; color: var(--muted); flex-shrink: 0; }
+.mobile-menu { display: none; }
+@media (max-width: 1000px) {
+  .sidebar { width: 205px; }
+  .topbar, .page-content { padding-left: 24px; padding-right: 24px; }
+  .home-columns, .profile-columns, .term-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats-grid { gap: 12px; }
+}
+@media (max-width: 760px) {
+  .app-shell, .app-shell:has(.workflow-screen) { min-width: 0; }
+  .mobile-menu { display: inline-flex; flex-shrink: 0; }
+  .sidebar, .app-shell:has(.workflow-screen) .sidebar { display: none; }
+  .mobile-navigation-open { flex-direction: column; }
+  .mobile-navigation-open .sidebar, .mobile-navigation-open:has(.workflow-screen) .sidebar { display: flex; width: 100%; max-height: 50dvh; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--line); }
+  .mobile-navigation-open .workspace { min-height: 0; }
+  .sidebar-bottom, .workspace-label, .nav-group-label { display: none; }
+  .brand { height: 56px; }
+  .nav-list { display: flex; flex-wrap: wrap; }
+  .topbar { min-height: 64px; height: auto; padding: 12px 16px; gap: 12px; }
+  .breadcrumb { min-width: 0; flex: 1; }
+  .breadcrumb > span, .breadcrumb > svg, .local-badge { display: none; }
+  .breadcrumb strong { overflow-wrap: anywhere; }
+  .topbar-actions { gap: 8px; }
+  .theme-toggle { min-width: 0; }
+  .page-content, .app-shell:has(.workflow-screen) .page-content { padding: 24px 16px; }
+  .page-header, .schedule-toolbar, .week-controls, .grades-toolbar, .resource-toolbar { flex-wrap: wrap; gap: 16px; }
+  .page-header h1 { font-size: 28px; }
+  .stats-grid, .home-columns, .profile-columns, .student-columns, .resource-grid, .term-grid { grid-template-columns: minmax(0, 1fr); }
+  .module-tabs { overflow-x: auto; max-width: 100%; }
+  .module-tabs button { flex-shrink: 0; }
+  .schedule-grid { overflow-x: auto; }
+  .week-grid { min-width: 750px; }
+  .service-list li { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .personal-groups, .timetable-selection, .timetable-source { padding: 20px; }
+  .registration-actions { flex-wrap: wrap; }
+  .registration-actions .button { white-space: normal; height: auto; min-height: 44px; }
+  .page-footer { flex-wrap: wrap; gap: 16px; }
+  .screen { min-width: 0; }
+}
+@media (max-width: 760px) {
+  .nav-label { display: none; }
+  .side-nav { display: flex; flex-wrap: wrap; gap: 8px; padding-bottom: 12px; }
+  .nav-group { display: contents; }
+  .week-card { overflow-x: auto; }
+  .profile-grid { grid-template-columns: minmax(0, 1fr); }
+}

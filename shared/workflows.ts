@@ -17,6 +17,7 @@ export interface WorkflowField {
 }
 export interface WorkflowForm {
   id: string
+  draftKey?: string
   title: string
   submitLabel: string
   changesAccount: boolean

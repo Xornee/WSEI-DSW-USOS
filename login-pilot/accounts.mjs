@@ -60,6 +60,28 @@ export class AccountStore {
       recovery_hash TEXT
     );`);
     this.dummySalt = randomBytes(16).toString("hex");
+    this.db.exec(`CREATE TABLE IF NOT EXISTS plan_preferences (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      scope TEXT NOT NULL, choices TEXT NOT NULL,
+      PRIMARY KEY(user_id,scope)
+    );`);
+  }
+  planPreferences(userId) {
+    return {
+      get: scope => {
+        const row = this.db.prepare('SELECT choices FROM plan_preferences WHERE user_id=? AND scope=?').get(userId, scope);
+        return row ? JSON.parse(row.choices) : {};
+      },
+      set: (scope, choices) => {
+        if (!/^[a-f0-9]{64}$/.test(scope) || Buffer.byteLength(JSON.stringify(choices)) > 50_000)
+          throw new AccountError(400, 'Nieprawidłowy zakres planu.');
+        this.db.prepare(`INSERT INTO plan_preferences VALUES (?,?,?)
+          ON CONFLICT(user_id,scope) DO UPDATE SET choices=excluded.choices`).run(userId, scope, JSON.stringify(choices));
+        // Bound historical semesters per local account, never touch credential tables.
+        this.db.prepare(`DELETE FROM plan_preferences WHERE user_id=? AND rowid NOT IN
+          (SELECT rowid FROM plan_preferences WHERE user_id=? ORDER BY rowid DESC LIMIT 24)`).run(userId, userId);
+      },
+    };
   }
   needsSetup() {
     return this.db.prepare("SELECT count(*) AS n FROM users").get().n === 0;

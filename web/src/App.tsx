@@ -10,6 +10,7 @@ import {
   CalendarRange,
   Library,
   Moon,
+  Menu,
   Wallet,
   ClipboardList,
   FileText,
@@ -40,6 +41,7 @@ import { HomeScreen } from "./screens/Home";
 import { PlanScreen } from "./screens/Plan";
 import { StudentScreen } from "./screens/Student";
 import { WorkflowScreen } from './screens/Workflow';
+import { StudentServicesScreen } from './screens/StudentServices';
 import { useWorkflow } from './lib/workflows';
 
 const TABS = [
@@ -69,6 +71,7 @@ const TABS = [
     group: "NA CO DZIEŃ",
   },
   { id: "payments", label: "Płatności", icon: Wallet, group: "TWOJE SPRAWY" },
+  { id: "services", label: "Sprawy uczelniane", icon: ListChecks, group: "TWOJE SPRAWY" },
   {
     id: "registrations",
     label: "Rejestracje",
@@ -123,12 +126,13 @@ function currentTab(): TabId {
 export default function App() {
   const workflow = useWorkflow();
   const [active, setActive] = useState<TabId>(currentTab);
+  const [navigationOpen, setNavigationOpen] = useState(false);
   const session = useSession(!publicSchedule);
   const { theme, toggleTheme } = useTheme();
   const mainRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    const update = () => setActive(currentTab());
+    const update = () => { setActive(currentTab()); setNavigationOpen(false); };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
@@ -147,7 +151,7 @@ export default function App() {
         : "Sesja USOS nieaktywna";
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${navigationOpen ? ' mobile-navigation-open' : ''}`}>
       <a
         className="skip-link"
         href="#main-content"
@@ -158,7 +162,7 @@ export default function App() {
       >
         Przejdź do treści
       </a>
-      <aside className="sidebar">
+      <aside className="sidebar" id="app-navigation">
         <a
           className="brand"
           href="#home"
@@ -224,6 +228,8 @@ export default function App() {
       </aside>
       <div className="workspace">
         <header className="topbar">
+          <button className="icon-button mobile-menu" aria-label={navigationOpen ? 'Zamknij menu' : 'Otwórz menu'} aria-expanded={navigationOpen}
+            aria-controls="app-navigation" onClick={() => setNavigationOpen(value => !value)}><Menu size={20} /></button>
           <div className="breadcrumb">
             <span>Przestrzeń studenta</span>
             <ChevronRight size={14} />
@@ -272,6 +278,7 @@ export default function App() {
             {active === "academic" && <AcademicScreen />}
             {active === "resources" && <ResourcesScreen />}
             {active === "payments" && <PaymentsScreen />}
+            {active === "services" && <StudentServicesScreen />}
             {active === "courses" && <CoursesScreen />}
             {active === "tests" && <TestsScreen />}
             {active === "registrations" && <RegistrationsScreen />}

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import type { ClassEntry, Plan } from '../../../shared/types'
+import { serializePlan } from '../../../shared/plan-calendar.mjs'
 import { Card } from '../components/Card'
 import { EmptyState } from '../components/EmptyState'
 import { PageHeader } from '../components/PageHeader'
@@ -62,19 +63,18 @@ export function PlanScreen() {
           <strong>{data.timetable.title}</strong>
           <p>Plan toku {data.timetable.trackId} · cały semestr · {data.entries.length} zajęć · {data.timetable.timezone}</p>
           <a href={data.timetable.url} target="_blank" rel="noreferrer">Otwórz oryginalny harmonogram ↗</a>
-          <p>Plan obejmuje grupy tego toku. Sprawdź oznaczenie swojej grupy w szczegółach zajęć.</p>
+          <p>{data.personal ? 'Wybór grup jest wspólny dla planu i przeglądu dnia.' : 'Publiczny podgląd obejmuje wszystkie grupy tego toku.'}</p>
         </Card>
       )}
+      {data?.personal && <PersonalGroups key={data.personal.scope} plan={data} track={track} onSaved={reload} />}
       {data && (!data.selection || data.timetable) && <Schedule key={`${data.timetable?.trackId}-${data.from}-${data.to}`} plan={data} />}
     </div>
   )
 }
 
 function Schedule({ plan }: { plan: Plan }) {
-  const [group, setGroup] = useState('')
-  const allEntries = validEntries(plan.entries)
-  const groups = [...new Set(allEntries.map(entry => entry.group).filter((value): value is string => !!value))].sort()
-  const entries = group ? allEntries.filter(entry => entry.group === group) : allEntries
+  const entries = validEntries(plan.entries)
+  const [exportError, setExportError] = useState('')
   const todayWeek = startOfWeek(new Date())
   const firstWeek = entries.length
     ? startOfWeek(new Date(entries[0]!.start))
@@ -90,8 +90,8 @@ function Schedule({ plan }: { plan: Plan }) {
   useEffect(() => {
     setWeek(new Date(Math.max(+firstWeek, Math.min(+todayWeek, +lastWeek))))
     setSelected(null)
-  }, [group, +firstWeek, +lastWeek])
-  const [view, setView] = useState<'grid' | 'list'>('grid')
+  }, [+firstWeek, +lastWeek])
+  const [view, setView] = useState<'grid' | 'list'>(() => matchMedia('(max-width: 760px)').matches ? 'list' : 'grid')
   const [selected, setSelected] = useState<ClassEntry | null>(null)
   const days = Array.from({ length: 7 }, (_, index) => addDays(week, index))
   const weekEntries = entries.filter(
@@ -153,13 +153,14 @@ function Schedule({ plan }: { plan: Plan }) {
           </button>
         </div>
       </div>
-      <div className="timetable-group">
-        <label htmlFor="timetable-group">Grupa </label>
-        <select id="timetable-group" value={group} onChange={event => setGroup(event.target.value)}>
-          <option value="">Wszystkie grupy</option>
-          {groups.map(value => <option key={value} value={value}>{value}</option>)}
-        </select>
-      </div>
+      <div className="registration-actions"><button className="button button-secondary" onClick={() => {
+        try {
+          const url = URL.createObjectURL(new Blob([serializePlan(plan)], { type: 'text/calendar;charset=utf-8' }))
+          const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'moj-plan.ics'; anchor.click()
+          setTimeout(() => URL.revokeObjectURL(url), 1000); setExportError('')
+        } catch { setExportError('Eksport wymaga poprawnych terminów zajęć. Odśwież plan.') }
+      }}>Pobierz plan ICS</button><span>Eksport obejmuje cały pobrany semestr i aktualnie widoczne grupy.</span></div>
+      {exportError && <p role="alert">{exportError}</p>}
       <div className="schedule-meta">
         <span>{weekEntries.length} zajęć w tym tygodniu</span>
         <span>
@@ -210,6 +211,46 @@ function Schedule({ plan }: { plan: Plan }) {
       )}
     </>
   )
+}
+
+function PersonalGroups({ plan, track, onSaved }: { plan: Plan; track: string | null; onSaved: () => void }) {
+  const personal = plan.personal!
+  const [choices, setChoices] = useState(personal.choices)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  useEffect(() => { setChoices(personal.choices) }, [personal.choices])
+  async function save(value: Record<string, string[]>) {
+    setBusy(true); setMessage('')
+    try {
+      const response = await fetch('/api/plan/groups', { method: 'POST', headers: { 'Content-Type': 'application/json',
+        'X-USOS-Connection': document.querySelector('meta[name="usos-connection"]')?.getAttribute('content') || '' },
+        body: JSON.stringify({ scope: personal.scope, choices: value, ...(track ? { trackId: track } : {}) }) })
+      const body = await response.json()
+      if (!response.ok || !body.ok) throw new Error(body.error || 'Zapis grup nie został potwierdzony.')
+      setChoices(body.data.personal.choices); setMessage('Zapisano grupy. Start i eksport używają tego samego planu.'); onSaved()
+    } catch (failure) { setMessage(failure instanceof Error ? failure.message : 'Odśwież plan i ponów wybór.') }
+    finally { setBusy(false) }
+  }
+  return <Card className="personal-groups">
+    <h2>Mój plan i grupy</h2><p>{personal.message}</p>
+    {!!personal.options.length && <details><summary>Wybierz grupy dla poszczególnych zajęć</summary>
+      <p>Oznaczenia pochodzą z harmonogramu. Zajęcia bez grupy i zajęcia bez alternatyw pozostają w planie.</p>
+      <fieldset disabled={busy} className="personal-group-options">
+        {personal.options.map(option => <fieldset key={option.key}><legend>{option.courseName} · {option.kindLabel}</legend>
+          {option.groups.map(group => <label key={group}><input type="checkbox" checked={(choices[option.key] || option.groups).includes(group)}
+            onChange={event => {
+              const current = choices[option.key] || option.groups
+              const selected = event.target.checked ? [...current, group] : current.filter(item => item !== group)
+              if (!selected.length) { setMessage('Pozostaw przynajmniej jedną grupę dla tych zajęć.'); return }
+              setMessage(''); setChoices({ ...choices, [option.key]: selected })
+            }} />{group}</label>)}
+        </fieldset>)}
+      </fieldset>
+      <div className="registration-actions"><button className="button button-primary" disabled={busy} onClick={() => void save(choices)}>{busy ? 'Zapisywanie…' : 'Zapisz mój plan'}</button>
+        <button className="button button-secondary" disabled={busy} onClick={() => void save({})}>Pokaż wszystkie grupy</button></div>
+    </details>}
+    {message && <p role="status">{message}</p>}
+  </Card>
 }
 
 function WeekGrid({

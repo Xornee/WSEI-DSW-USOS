@@ -3,6 +3,9 @@ import { readLimitedText } from "../server/usos/transport.mjs";
 import { tsImport } from "tsx/esm/api";
 import { accountId } from "./browser.mjs";
 import { load } from "cheerio";
+import { WorkflowConnection, workflowUrl, WorkflowError } from './workflows.mjs';
+import { personalizePlan, planScope, groupOptions, validateChoices, PlanPreferenceError } from './personal-plan.mjs';
+import { discoverStudentServices } from './student-services.mjs';
 
 export function exportCalendarUrl(html, expectedAccount) {
   const fields = load(html)("#plan_export_link");
@@ -155,9 +158,11 @@ const envelope = (data, source = "live", at = Date.now()) => ({
 export class DashboardConnection {
   constructor(
     worker,
-    { schedule = createScheduler(), fetchPublic = fetch, ttl = 60_000, timetable = null, trackCatalog = null } = {},
+    { schedule = createScheduler(), fetchPublic = fetch, ttl = 60_000, timetable = null, trackCatalog = null, planPreferences = null } = {},
   ) {
     this.worker = worker;
+    const preferences = new Map();
+    this.planPreferences = planPreferences || { get: scope => preferences.get(scope) || {}, set: (scope, value) => preferences.set(scope, value) };
     this.timetable = timetable;
     this.trackCatalog = trackCatalog ?? (timetable ? new TrackCatalog(timetable) : null);
     this.controller = new AbortController();
@@ -172,6 +177,7 @@ export class DashboardConnection {
     this.calendarState = "not_connected";
     this.autoPending = null;
     this.lastAutoAttempt = 0;
+    this.workflows = new WorkflowConnection(this);
   }
   assertConnected() {
     if (
@@ -181,6 +187,7 @@ export class DashboardConnection {
       !this.worker.expectedAccount
     ) {
       this.cache.clear();
+      this.workflows?.clear();
       throw new DashboardError(
         401,
         "Sesja wygasła. Połącz USOS ponownie na stronie logowania.",
@@ -193,6 +200,7 @@ export class DashboardConnection {
     this.ical = null;
     this.cache.clear();
     this.pending.clear();
+    this.workflows.clear();
     this.calendarState = "not_connected";
   }
   async connectCalendarAutomatically() {
@@ -268,17 +276,28 @@ export class DashboardConnection {
     }
   }
   async privatePage(action, params = {}) {
+    const url = new URL("https://usosweb.ideis.pl/kontroler.php");
+    url.search = new URLSearchParams({ _action: action, ...params }).toString();
+    return this.privatePageUrl(url.href);
+  }
+  async privatePageUrl(raw, { method = 'GET', body, mutation = false, includeUrl = false } = {}) {
     return this.schedule(async () => {
       this.assertConnected();
-      const url = new URL("https://usosweb.ideis.pl/kontroler.php");
-      url.search = new URLSearchParams({
-        _action: action,
-        ...params,
-      }).toString();
-      this.worker.record("GET", url.href);
+      let url = new URL(raw);
+      if (url.origin !== 'https://usosweb.ideis.pl' || url.pathname !== '/kontroler.php' || url.username || url.password)
+        throw new WorkflowError(400, 'Nieprawidłowy adres źródła.');
+      this.worker.record(method, url.href);
       let response;
       try {
-        response = await this.worker.api.get(url.href, { maxRedirects: 0, signal: this.controller.signal });
+        response = await this.worker.api[method === 'POST' ? 'post' : 'get'](url.href, { body, maxRedirects: 0, signal: this.controller.signal });
+        // Post/Redirect/Get stays within a read-only, fixed-origin destination.
+        if (mutation && [302, 303].includes(response.status())) {
+          const location = response.headers?.().location;
+          if (!location) throw new WorkflowError(502, 'Sprawdź status sprawy — odpowiedź operacji jest niejednoznaczna.');
+          url = workflowUrl(location, url.href);
+          await response.dispose();
+          response = await this.worker.api.get(url.href, { maxRedirects: 0, signal: this.controller.signal });
+        }
         const html = await response.text();
         this.assertConnected();
         if (
@@ -299,7 +318,7 @@ export class DashboardConnection {
           throw new DashboardError(502, "USOS nie zwrócił danych tej strony.");
         if (html.length > 2_000_000)
           throw new DashboardError(502, "Odpowiedź USOS jest zbyt duża.");
-        return html;
+        return includeUrl ? { html, url: url.href } : html;
       } finally {
         await response?.dispose().catch(() => {});
       }
@@ -390,7 +409,7 @@ export class DashboardConnection {
   stages() {
     return this.cached("stages", async () => parseStages(await this.privatePage("dla_stud/studia/zaliczenia/index")));
   }
-  async plan(requestedId) {
+  async rawPlan(requestedId) {
     this.assertConnected();
     if (this.timetable) {
       const selection = await this.cached("timetable-selection", async () => {
@@ -415,9 +434,45 @@ export class DashboardConnection {
       return parseIcal(body);
     });
   }
+  async plan(requestedId) {
+    const result = await this.rawPlan(requestedId);
+    this.assertConnected();
+    if (!result.data.from || !result.data.to) return result;
+    const scope = planScope(result.data, this.worker.expectedAccount);
+    return { ...result, data: personalizePlan(result.data, this.worker.expectedAccount, this.planPreferences.get(scope)) };
+  }
+  async setPlanGroups(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input) ||
+        Object.keys(input).some(key => !['trackId', 'scope', 'choices'].includes(key)) ||
+        (input.trackId !== undefined && (typeof input.trackId !== 'string' || !/^[1-9]\d{0,5}$/.test(input.trackId))))
+      throw new PlanPreferenceError(400, 'Nieprawidłowy wybór planu.');
+    await this.privatePage('home/index');
+    const result = await this.rawPlan(input.trackId);
+    this.assertConnected();
+    const scope = planScope(result.data, this.worker.expectedAccount);
+    if (!result.data.from || !result.data.to || input.scope !== scope)
+      throw new PlanPreferenceError(409, 'Zakres planu zmienił się. Odśwież plan przed zapisaniem grup.');
+    const choices = validateChoices(input.choices, groupOptions(result.data.entries));
+    this.planPreferences.set(scope, choices);
+    return { ...result, data: personalizePlan(result.data, this.worker.expectedAccount, choices) };
+  }
   async handle(url) {
     this.assertConnected();
     const path = url.pathname;
+    if (path === '/api/student-services') {
+      const html = await this.privatePage('dla_stud/index');
+      return envelope(discoverStudentServices(html, this.workflows, 'https://usosweb.ideis.pl/kontroler.php?_action=dla_stud/index'));
+    }
+    if (path === '/api/workflows') {
+      if ([...url.searchParams.keys()].some(key => !['entry', 'target', 'refresh'].includes(key)) ||
+          [...url.searchParams.keys()].some(key => url.searchParams.getAll(key).length !== 1) ||
+          (url.searchParams.has('refresh') && !['0', '1'].includes(url.searchParams.get('refresh'))))
+        throw new WorkflowError(400, 'Nieprawidłowy wybór sprawy.');
+      const target = url.searchParams.get('target'), refresh = url.searchParams.get('refresh') === '1';
+      const page = await this.workflows.open({ entry: url.searchParams.get('entry'), target, refresh });
+      const cachedAt = target && !refresh && this.workflows.targets.get(target)?.resultAt;
+      return envelope(page, cachedAt ? 'cache' : 'live', cachedAt || Date.now());
+    }
     if (path === "/api/session")
       return {
         loggedIn: true,
@@ -432,6 +487,7 @@ export class DashboardConnection {
       return envelope({
         greeting: student.data.displayName?.split(" ")[0] ?? null,
         timetableSelection: plan.data.selection,
+        personalPlan: plan.data.personal && { state: plan.data.personal.state, message: plan.data.personal.message },
         nextClass:
           plan.data.entries.find((entry) => new Date(entry.start) > now) ??
           null,
@@ -453,12 +509,11 @@ export class DashboardConnection {
       const id = path.slice("/api/sections/".length);
       if (!Object.hasOwn(ACCOUNT_SECTIONS, id))
         throw new DashboardError(404, "Nieznana sekcja.");
-      return this.cached(`section:${id}`, async () =>
-        parseAccountSection(
-          await this.privatePage(ACCOUNT_SECTIONS[id].action),
-          id,
-        ),
-      );
+      return this.cached(`section:${id}`, async () => {
+        const html = await this.privatePage(ACCOUNT_SECTIONS[id].action);
+        return this.workflows.decorate(parseAccountSection(html, id), html,
+          `https://usosweb.ideis.pl/kontroler.php?_action=${ACCOUNT_SECTIONS[id].action}`);
+      });
     }
     if (path === "/api/directory") {
       const query = (url.searchParams.get("q") || "").trim(),
@@ -472,27 +527,23 @@ export class DashboardConnection {
           400,
           "Wpisz 2–80 znaków i poprawny typ katalogu.",
         );
-      return this.cached(`directory:${kind}:${query}`, async () =>
-        parseDirectory(
-          await this.privatePage(
+      return this.cached(`directory:${kind}:${query}`, async () => {
+        const html = await this.privatePage(
             kind === "people"
               ? "katalog2/osoby/szukajOsoby"
               : "katalog2/jednostki/szukajJednostki",
             { _pattern: query },
-          ),
-          query,
-          kind,
-        ),
-      );
+          );
+        const data = parseDirectory(html, query, kind);
+        return this.workflows.decorate(data, html, data.sourceUrl);
+      });
     }
     if (path === "/api/news")
-      return this.cached("news", async () =>
-        parseNews(
-          await this.publicBody(
-            "https://usosweb.ideis.pl/kontroler.php?_action=news/default",
-          ),
-        ),
-      );
+      return this.cached("news", async () => {
+        const url = 'https://usosweb.ideis.pl/kontroler.php?_action=news/default';
+        const html = await this.publicBody(url);
+        return this.workflows.decorate(parseNews(html), html, url);
+      });
     if (path === "/api/terms")
       return this.cached("terms", async () => {
         const today = new Date(),

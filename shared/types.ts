@@ -72,11 +72,20 @@ export interface TimetableSelection {
 }
 
 export interface Plan {
+  personal?: PersonalPlan;
   selection?: TimetableSelection;
   from: string;
   to: string;
   entries: readonly ClassEntry[];
   timetable?: { trackId: string; title: string; url: string; timezone: string; from: string; to: string };
+}
+
+export interface PersonalPlan {
+  scope: string;
+  state: 'selected' | 'choice_required' | 'unambiguous' | 'outdated';
+  message: string;
+  choices: Record<string, string[]>;
+  options: { key: string; courseName: string; kindLabel: string; groups: string[] }[];
 }
 
 export interface Announcement {
@@ -87,6 +96,7 @@ export interface Announcement {
 }
 
 export interface Home {
+  personalPlan?: Pick<PersonalPlan, 'state' | 'message'>;
   timetableSelection?: TimetableSelection;
   announcementsState?: "connected" | "not_connected";
   greeting: string | null;

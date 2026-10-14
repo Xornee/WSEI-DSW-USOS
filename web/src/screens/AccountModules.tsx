@@ -8,6 +8,7 @@ import { SectionData } from '../components/SourceData'
 import { ScreenSkeleton } from '../components/Skeleton'
 import { StateBanner } from '../components/StateBanner'
 import { useEndpoint } from '../lib/api'
+import { WorkflowLink } from '../lib/workflows'
 import { fmtDate } from '../lib/format'
 
 export type ModuleTab = { id: AccountSectionId; label: string }
@@ -43,7 +44,7 @@ export function DocumentsScreen() {
     <AccountModule
       title="Wnioski i dokumenty"
       eyebrow="SPRAWY DO ZAŁATWIENIA"
-      description="Wnioski, decyzje i dyplomy. Formularze i szczegóły otworzysz bezpośrednio w USOSweb."
+      description="Wnioski, decyzje i dyplomy. Formularze, szczegóły i pobieranie dokumentów w tej aplikacji."
       tabs={DOCUMENT_TABS}
     />
   )
@@ -63,28 +64,18 @@ export function RegistrationsScreen() {
     <AccountModule
       title="Rejestracje"
       eyebrow="NIE PRZEGAP ZAPISÓW"
-      description="Rejestracje przypisane do Twojego konta. Zapisy i zmiany grup wykonasz w USOSweb."
+      description="Rejestracje przypisane do Twojego konta. Dostępne zapisy i zmiany grup wykonasz tutaj po potwierdzeniu."
       tabs={[{ id: 'registrations', label: 'Moje rejestracje' }]}
       renderExtra={() => (
         <div className="registration-actions">
-          <a
-            className="button button-secondary"
-            href="https://usosweb.ideis.pl/kontroler.php?_action=news/rejestracje/index"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <WorkflowLink entry="registration-calendar" link={{label: "Pełny kalendarz rejestracji", url: ""}} className="button button-secondary">
             Pełny kalendarz rejestracji
             <ArrowUpRight size={14} />
-          </a>
-          <a
-            className="button button-secondary"
-            href="https://usosweb.ideis.pl/kontroler.php?_action=dla_stud/rejestracja/przedmioty"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          </WorkflowLink>
+          <WorkflowLink entry="registration-subjects" link={{label: "Przedmioty i zapisy", url: ""}} className="button button-secondary">
             Przedmioty i zapisy
             <ArrowUpRight size={14} />
-          </a>
+          </WorkflowLink>
         </div>
       )}
     />
@@ -152,15 +143,10 @@ function AccountModuleContent({
         loading={loading}
         onReload={reload}
         extra={
-          <a
-            className="button button-secondary"
-            href={sectionUrl(selected)}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Otwórz USOSweb
+          <WorkflowLink entry={selected} link={{label: "Pełne szczegóły", url: sectionUrl(selected)}} className="button button-secondary">
+            Szczegóły i działania
             <ArrowUpRight size={14} />
-          </a>
+          </WorkflowLink>
         }
       />
       <div className="module-tabs" aria-label={`Sekcje: ${title}`}>
@@ -182,7 +168,7 @@ function AccountModuleContent({
           <SectionData data={data} copyable={copyable} />
           <p className="section-note">
             Źródło: {data.title} w USOSweb. Stan pochodzi z ostatniego pobrania;
-            szczegóły i działania na koncie pozostają w systemie uczelni.
+            dostępne szczegóły i formularze otwierają się w aplikacji.
           </p>
         </>
       )}

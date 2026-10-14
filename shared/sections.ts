@@ -46,6 +46,7 @@ export const sectionUrl = (key: AccountSectionId) =>
 export interface SourceLink {
   label: string;
   url: string;
+  workflow?: { target: string; kind: 'page' | 'download' | 'action' };
 }
 export interface SourceCell {
   text: string;
@@ -79,6 +80,8 @@ export interface AccountSection {
   records: SourceRecord[];
   links: SourceLink[];
   dues: PaymentDue[];
+  workflow?: SourceLink['workflow'];
+  hasForms?: boolean;
 }
 export interface DirectoryResult {
   query: string;
@@ -87,4 +90,5 @@ export interface DirectoryResult {
   messages: string[];
   sourceUrl: string;
   moreAvailable: boolean;
+  workflow?: SourceLink['workflow'];
 }

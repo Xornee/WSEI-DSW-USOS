@@ -1,3 +1,4 @@
+import { WorkflowLink } from "../lib/workflows";
 import { ArrowUpRight, CheckCheck, GraduationCap, Hash } from 'lucide-react'
 import type { Stages } from '../../../shared/types'
 import { Card, CardHeader } from '../components/Card'
@@ -31,15 +32,10 @@ export function ProgressScreen() {
         loading={loading}
         onReload={reload}
         extra={
-          <a
-            className="button button-secondary"
-            href="https://usosweb.ideis.pl/kontroler.php?_action=dla_stud/studia/zaliczenia/index"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Etapy w USOSweb
+          <WorkflowLink entry="study-progress" link={{label: "Szczegóły etapów", url: ""}} className="button button-secondary">
+            Szczegóły etapów
             <ArrowUpRight size={14} />
-          </a>
+          </WorkflowLink>
         }
       />
       <StateBanner meta={meta} error={error} onReload={reload} />

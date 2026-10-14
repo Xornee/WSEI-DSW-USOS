@@ -6,6 +6,7 @@ import { EmptyState } from "../components/EmptyState";
 import { SourceTableView } from "../components/SourceData";
 import { ScreenSkeleton } from "../components/Skeleton";
 import { StateBanner } from "../components/StateBanner";
+import { WorkflowLink } from "../lib/workflows";
 import { useEndpoint } from "../lib/api";
 
 export function ContactsScreen() {
@@ -25,15 +26,10 @@ export function ContactsScreen() {
             Katalog pracowników oraz jednostek organizacyjnych uczelni.
           </p>
         </div>
-        <a
-          className="button button-secondary"
-          href="https://usosweb.ideis.pl/kontroler.php?_action=news/kontakt"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <WorkflowLink entry="contact" link={{label: "Kontakt z uczelnią", url: ""}} className="button button-secondary">
           Kontakt z uczelnią
           <ArrowUpRight size={14} />
-        </a>
+        </WorkflowLink>
       </header>
       <div className="module-tabs" aria-label="Rodzaj katalogu">
         <button
@@ -109,7 +105,7 @@ export function ContactsScreen() {
       )}
       <p className="section-note">
         Pokazujemy dane udostępnione przez katalog uczelni. Profil i pełne dane
-        kontaktowe otwierają się w nowej karcie USOSweb.
+        kontaktowe otwierają się w aplikacji.
       </p>
     </div>
   );
@@ -145,21 +141,16 @@ function DirectoryResults({
             <Card>
               <EmptyState
                 title="Brak wyników w katalogu"
-                description="Spróbuj innej nazwy lub otwórz pełny katalog uczelni."
+                description="Spróbuj innej nazwy lub przejdź do pełnych wyników poniżej."
               />
             </Card>
           )}
-          <a
-            className="button button-secondary"
-            href={data.sourceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
+          <WorkflowLink link={{label: "Pełne wyniki", url: data.sourceUrl, workflow: data.workflow}} className="button button-secondary">
             {data.moreAvailable
-              ? "Więcej wyników w USOSweb"
-              : "Otwórz wyniki w USOSweb"}
+              ? "Więcej wyników"
+              : "Pełne wyniki"}
             <ArrowUpRight size={14} />
-          </a>
+          </WorkflowLink>
         </>
       )}
     </>

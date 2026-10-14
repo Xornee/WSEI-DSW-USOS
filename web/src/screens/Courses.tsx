@@ -8,6 +8,7 @@ import { ScreenSkeleton } from '../components/Skeleton'
 import { StateBanner } from '../components/StateBanner'
 import type { AccountSection } from '../../../shared/sections'
 import { useEndpoint } from '../lib/api'
+import { WorkflowLink } from '../lib/workflows'
 import { gradeStyle } from '../lib/format'
 
 export function CoursesScreen() {
@@ -22,17 +23,13 @@ export function CoursesScreen() {
             Bieżące grupy zajęciowe i historia przedmiotów z ocenami.
           </p>
         </div>
-        <a
-          className="button button-secondary"
-          href="https://usosweb.ideis.pl/kontroler.php?_action=katalog2/przedmioty/index"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
+        <WorkflowLink entry="course-catalog" link={{label: "Katalog przedmiotów", url: ""}} className="button button-secondary">
           Katalog przedmiotów
           <ArrowUpRight size={14} />
-        </a>
+        </WorkflowLink>
       </header>
       <div className="module-tabs" aria-label="Widok przedmiotów">
+        <a className="button button-secondary" href="#services">Podpięcia i ECTS</a>
         <button
           aria-pressed={view === 'current'}
           onClick={() => setView('current')}
@@ -69,15 +66,10 @@ function CurrentCourses() {
             >
               Odśwież zajęcia
             </button>
-            <a
-              className="button button-secondary"
-              href={data.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Zajęcia i archiwum w USOS
+            <WorkflowLink link={{label: "Pełne szczegóły zajęć", url: data.sourceUrl, workflow: data.workflow}} className="button button-secondary">
+              Pełne szczegóły zajęć
               <ArrowUpRight size={14} />
-            </a>
+            </WorkflowLink>
           </div>
         </>
       )}

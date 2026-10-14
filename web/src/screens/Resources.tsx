@@ -16,6 +16,7 @@ import type {
   AccountSection,
   AccountSectionId,
 } from "../../../shared/sections";
+import { WorkflowLink } from "../lib/workflows";
 import { useEndpoint } from "../lib/api";
 import { SectionData } from "../components/SourceData";
 import { ScreenSkeleton } from "../components/Skeleton";
@@ -80,10 +81,10 @@ export function ResourcesScreen() {
               <GraduationCap size={24} />
             </span>
             <div>
-              <strong>Sprawdzone odnośniki do serwisów uczelni</strong>
+              <strong>Sprawy i informacje uczelniane</strong>
               <p>
-                Każda karta otwiera oficjalną podstronę w nowej karcie. Nie
-                wykonuje zapisów ani zmian na Twoim koncie.
+                Każda karta otwiera treść w aplikacji. Zmiany na koncie
+                wymagają osobnego potwierdzenia.
               </p>
             </div>
           </div>
@@ -115,13 +116,7 @@ export function ResourcesScreen() {
             {resources.map((resource) => {
               const Icon = ICONS[resource.icon];
               return (
-                <a
-                  key={resource.id}
-                  className="card resource-card"
-                  href={resource.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <WorkflowLink key={resource.id} entry={`resource:${resource.id}`} link={{label: resource.title, url: resource.url}} className="card resource-card">
                   <div className="resource-card-top">
                     <span className="quick-link-icon">
                       <Icon size={21} />
@@ -133,9 +128,9 @@ export function ResourcesScreen() {
                   <h2>{resource.title}</h2>
                   <p>{resource.description}</p>
                   <div className="resource-card-footer">
-                    Otwórz w USOSweb <ArrowUpRight size={16} />
+                    Otwórz tutaj <ArrowUpRight size={16} />
                   </div>
-                </a>
+                </WorkflowLink>
               );
             })}
           </div>
@@ -183,15 +178,10 @@ function EssentialData({ id }: { id: AccountSectionId }) {
             <button className="button button-secondary" onClick={reload}>
               Odśwież
             </button>
-            <a
-              className="button button-secondary"
-              href={data.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Otwórz {data.title} w USOSweb
+            <WorkflowLink entry={id} link={{label: `Szczegóły: ${data.title}`, url: data.sourceUrl}} className="button button-secondary">
+              Szczegóły: {data.title}
               <ArrowUpRight size={14} />
-            </a>
+            </WorkflowLink>
           </div>
         </>
       )}

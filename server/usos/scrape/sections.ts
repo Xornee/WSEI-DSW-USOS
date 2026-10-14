@@ -24,7 +24,7 @@ const short = (text: string) => clean(text).replace(/\s+/g, " ");
 
 export function navigationLink(href: string): string | null {
   try {
-    const url = new URL(href, "https://usosweb.ideis.pl");
+    const url = new URL(href, "https://usosweb.ideis.pl/kontroler.php");
     if (url.username || url.password) return null;
     if (["mailto:", "tel:"].includes(url.protocol)) return url.href;
     if (!["https:", "http:"].includes(url.protocol)) return null;

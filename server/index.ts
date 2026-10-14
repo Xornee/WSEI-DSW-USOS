@@ -151,6 +151,9 @@ app.get('/api/directory', async (c) => {
 })
 
 app.get('/api/session', async (c) => c.json(await repo.session()))
+app.get('/api/student-services', c => c.json({ ok: false, data: null,
+  error: 'Wykrywanie modułów wymaga panelu połączonego z USOS przez login-pilot (Docker).',
+  meta: { source: client.configured ? 'live' : 'mock', fetchedAt: new Date().toISOString(), stale: false } }, 409))
 async function loadTimetable(query: URLSearchParams) {
   const selected = query.get('trackId') ?? undefined
   if (query.getAll('trackId').length > 1 || [...query.keys()].some(key => !['trackId', 'scope'].includes(key)) || query.getAll('scope').length > 1 || (query.has('scope') && query.get('scope') !== 'public')) throw new TimetableError(400, 'Nieprawidłowy wybór toku.')

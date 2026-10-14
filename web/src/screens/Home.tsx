@@ -48,6 +48,7 @@ export function HomeScreen({ userId = null }: { userId?: string | null }) {
       <StateBanner meta={meta} error={error} onReload={reload} />
       {loading && !data && <ScreenSkeleton />}
       <AttentionPanel userId={userId} />
+      {data?.personalPlan && ['choice_required', 'outdated'].includes(data.personalPlan.state) && <Card className="timetable-selection"><strong>Plan zawiera alternatywne grupy</strong><p>{data.personalPlan.message}</p><a href="#plan">Ustaw mój plan i grupy</a></Card>}
       {data?.timetableSelection && ['choice_required', 'unresolved'].includes(data.timetableSelection.state) && <Card className="timetable-selection"><strong>Plan oczekuje na dopasowanie toku</strong><p>{data.timetableSelection.message}</p><a href="#plan">Otwórz dopasowanie planu →</a></Card>}
       {data && (
         <>

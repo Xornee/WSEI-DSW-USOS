@@ -9,6 +9,9 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
 import { BrowserWorker } from "./browser.mjs";
+import { WorkflowError } from './workflows.mjs';
+import { PlanPreferenceError } from './personal-plan.mjs';
+import { serializePlan } from '../shared/plan-calendar.mjs';
 import {
   DashboardConnection,
   DashboardError,
@@ -85,7 +88,8 @@ export async function createPilot({
   const trackCatalog = timetable ? new TrackCatalog(timetable) : null;
   const makeDashboard =
     dashboardFactory ||
-    ((worker) => new DashboardConnection(worker, { schedule, timetable, trackCatalog }));
+    ((worker, session) => new DashboardConnection(worker, { schedule, timetable, trackCatalog,
+      planPreferences: accounts && session.user ? accounts.planPreferences(session.user.id) : null }));
   const dashboardAssets = new Map();
   try {
     const files = JSON.parse(
@@ -373,7 +377,7 @@ export async function createPilot({
         const selected = requestUrl.searchParams.get("trackId") ?? undefined;
         if (requestUrl.searchParams.get("scope") !== "public" && session?.worker?.state === "connected") {
           const worker = session.worker;
-          session.dashboard ??= makeDashboard(worker);
+          session.dashboard ??= makeDashboard(worker, session);
           const plan = await session.dashboard.plan(selected);
           if (session.worker !== worker || worker.state !== "connected") throw new DashboardError(401, "Sesja została rozłączona.");
           return json(200, plan);
@@ -446,22 +450,117 @@ export async function createPilot({
       return json(401, { error: "Session expired. Reload this page." });
     if (req.method === "GET" && path === "/api/status")
       return json(200, status(session));
+    if (requestUrl.pathname === '/api/plan/groups' || requestUrl.pathname === '/api/plan/export') {
+      const worker = session.worker;
+      let locked = false;
+      try {
+        if (worker?.state !== 'connected') throw new DashboardError(401, 'Połącz USOS ponownie.');
+        session.dashboard ??= makeDashboard(worker, session);
+        if (requestUrl.pathname.endsWith('/export')) {
+          if (req.method !== 'GET') return json(405, { error: 'Wymagane pobranie GET.' });
+          if ([...requestUrl.searchParams.keys()].some(key => key !== 'trackId') || requestUrl.searchParams.getAll('trackId').length > 1)
+            throw new PlanPreferenceError(400, 'Nieprawidłowy wybór toku.');
+          const plan = await session.dashboard.plan(requestUrl.searchParams.get('trackId') ?? undefined);
+          if (session.worker !== worker || worker.state !== 'connected') throw new DashboardError(401, 'Sesja została rozłączona.');
+          if (!plan.data.from || !plan.data.to) throw new PlanPreferenceError(409, 'Najpierw rozpoznaj tok w planie.');
+          res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8', 'Content-Disposition': 'attachment; filename="moj-plan.ics"' });
+          return res.end(serializePlan(plan.data));
+        }
+        if (req.method !== 'POST') return json(405, { error: 'Wymagane wysłanie POST.' });
+        if (!validOrigin(req) || req.headers['x-usos-connection'] !== session.generation)
+          throw new PlanPreferenceError(403, 'Odśwież panel przed zapisaniem grup.');
+        if (session.busy) throw new PlanPreferenceError(409, 'Inna czynność jest w toku.');
+        if (!(req.headers['content-type'] || '').startsWith('application/json')) throw new PlanPreferenceError(415, 'Wymagany format JSON.');
+        session.busy = true; session.operation = '/api/plan/groups'; locked = true;
+        const chunks = []; let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 50_000) throw new PlanPreferenceError(413, 'Wybór grup jest zbyt duży.');
+          chunks.push(chunk);
+        }
+        let input;
+        try { input = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+        catch { throw new PlanPreferenceError(400, 'Nieprawidłowy wybór grup.'); }
+        const result = await session.dashboard.setPlanGroups(input);
+        if (session.worker !== worker || worker.state !== 'connected') throw new DashboardError(401, 'Sesja została rozłączona.');
+        return json(200, result);
+      } catch (error) {
+        const known = error instanceof PlanPreferenceError || error instanceof DashboardError || error instanceof TimetableError;
+        return json(known ? error.status : 502, { ok: false, data: null, error: known ? error.message : 'Zapis lub eksport planu nie został potwierdzony.',
+          meta: { source: 'live', stale: false, fetchedAt: new Date().toISOString() } });
+      } finally { if (locked) { session.busy = false; session.operation = null; } }
+    }
+    if (requestUrl.pathname === '/api/workflows/submit' || requestUrl.pathname === '/api/workflows/download') {
+      const worker = session.worker;
+      let locked = false;
+      try {
+        if (worker?.state !== 'connected') throw new WorkflowError(401, 'Połącz USOS ponownie.');
+        session.dashboard ??= makeDashboard(worker, session);
+        if (requestUrl.pathname.endsWith('/download')) {
+          if (req.method !== 'GET') return json(405, { error: 'Wymagane pobranie GET.' });
+          const result = await session.dashboard.workflows.download(requestUrl.searchParams.get('target'));
+          if (session.worker !== worker || worker.state !== 'connected') throw new WorkflowError(401, 'Sesja została rozłączona.');
+          res.writeHead(200, { 'Content-Type': result.type,
+            'Content-Disposition': `attachment; filename="${result.filename.replace(/[^a-zA-Z0-9_. -]/g, '_')}"`,
+            'Content-Length': result.bytes.length });
+          return res.end(result.bytes);
+        }
+        if (req.method !== 'POST') return json(405, { error: 'Wymagane wysłanie POST.' });
+        if (!validOrigin(req) || req.headers['x-usos-connection'] !== session.generation)
+          throw new WorkflowError(403, 'Odśwież panel i potwierdź czynność w aktualnej sesji.');
+        if (session.busy) throw new WorkflowError(409, 'Inna czynność jest w toku.');
+        const type = req.headers['content-type'] || '';
+        if (!type.startsWith('application/json') && !type.startsWith('multipart/form-data;'))
+          throw new WorkflowError(415, 'Nieprawidłowy format formularza.');
+        const limit = type.startsWith('multipart/') ? 10_000_000 : 100_000;
+        if (Number(req.headers['content-length']) > limit) throw new WorkflowError(413, 'Formularz jest zbyt duży.');
+        session.busy = true; session.operation = '/api/workflows/submit'; locked = true;
+        const chunks = []; let size = 0;
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > limit) throw new WorkflowError(413, 'Formularz jest zbyt duży.');
+          chunks.push(chunk);
+        }
+        const body = Buffer.concat(chunks, size);
+        let input, files = [];
+        try {
+          if (type.startsWith('multipart/')) {
+            const data = await new Request(origin, { method: 'POST', headers: { 'content-type': type }, body }).formData();
+            if (data.getAll('payload').length !== 1 || typeof data.get('payload') !== 'string') throw new Error();
+            input = JSON.parse(data.get('payload'));
+            for (const [name, blob] of data) if (name !== 'payload') {
+              if (!name.startsWith('file:') || typeof blob === 'string') throw new Error();
+              files.push({ name: name.slice(5), blob });
+            }
+            if (files.length > 8) throw new Error();
+          } else input = JSON.parse(body.toString('utf8'));
+        } catch { throw new WorkflowError(400, 'Nieprawidłowy formularz.'); }
+        const data = await session.dashboard.workflows.submit(input, files);
+        if (session.worker !== worker || worker.state !== 'connected') throw new WorkflowError(401, 'Sesja została rozłączona.');
+        return json(200, { ok: true, data, error: null, meta: { source: 'live', stale: false, fetchedAt: new Date().toISOString() } });
+      } catch (error) {
+        return json(error instanceof WorkflowError || error instanceof DashboardError ? error.status : 502, {
+          ok: false, data: null, error: error instanceof WorkflowError || error instanceof DashboardError ? error.message : 'Sprawdź stan sprawy — odpowiedź czynności nie została potwierdzona.',
+          meta: { source: 'live', stale: false, fetchedAt: new Date().toISOString() },
+        });
+      } finally { if (locked) { session.busy = false; session.operation = null; } }
+    }
     if (req.method === "GET" && path.startsWith("/api/")) {
       const worker = session.worker;
       try {
         if (worker?.state !== "connected")
           throw new DashboardError(401, "Połącz USOS na stronie logowania.");
-        session.dashboard ??= makeDashboard(worker);
+        session.dashboard ??= makeDashboard(worker, session);
         const data = await session.dashboard.handle(new URL(path, origin));
         if (session.worker !== worker || worker.state !== "connected")
           throw new DashboardError(401, "Sesja została rozłączona.");
         return json(200, data);
       } catch (error) {
-        return json(error instanceof DashboardError || error instanceof TimetableError ? error.status : 502, {
+        return json(error instanceof DashboardError || error instanceof TimetableError || error instanceof WorkflowError ? error.status : 502, {
           ok: false,
           data: null,
           error:
-            (error instanceof DashboardError || error instanceof TimetableError)
+            (error instanceof DashboardError || error instanceof TimetableError || error instanceof WorkflowError)
               ? error.message
               : "Dane chwilowo niedostępne. Spróbuj ponownie.",
           meta: {
@@ -501,7 +600,7 @@ export async function createPilot({
       if (path === "/api/calendar/auto") {
         if (session.worker?.state !== "connected")
           throw new DashboardError(401, "Najpierw połącz USOS.");
-        session.dashboard ??= makeDashboard(session.worker);
+        session.dashboard ??= makeDashboard(session.worker, session);
         await session.dashboard.connectCalendarAutomatically();
       } else if (path === "/api/calendar") {
         if (session.worker?.state !== "connected")
@@ -520,7 +619,7 @@ export async function createPilot({
         } catch {
           throw new DashboardError(400, "Nieprawidłowy JSON.");
         }
-        session.dashboard ??= makeDashboard(session.worker);
+        session.dashboard ??= makeDashboard(session.worker, session);
         await session.dashboard.setCalendar(parsed?.url);
       } else if (path === "/api/disconnect") {
         await dispose(session);
@@ -556,7 +655,7 @@ export async function createPilot({
             ...status(session),
           });
         session.ws?.close(1000, "Backend connected");
-        session.dashboard ??= makeDashboard(session.worker);
+        session.dashboard ??= makeDashboard(session.worker, session);
         if (
           !timetable && !session.dashboard.ical &&
           Date.now() - session.dashboard.lastAutoAttempt >= 30_000

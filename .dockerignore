@@ -11,6 +11,8 @@
 !web/public/**
 !shared/
 !shared/*.ts
+!shared/*.mjs
+!shared/*.d.mts
 !server/
 !server/usos/
 !server/usos/*.ts

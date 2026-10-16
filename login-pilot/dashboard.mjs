@@ -280,12 +280,13 @@ export class DashboardConnection {
     url.search = new URLSearchParams({ _action: action, ...params }).toString();
     return this.privatePageUrl(url.href);
   }
-  async privatePageUrl(raw, { method = 'GET', body, mutation = false, includeUrl = false } = {}) {
+  async privatePageUrl(raw, { method = 'GET', body, mutation = false, includeUrl = false, beforeRequest } = {}) {
     return this.schedule(async () => {
       this.assertConnected();
       let url = new URL(raw);
       if (url.origin !== 'https://usosweb.ideis.pl' || url.pathname !== '/kontroler.php' || url.username || url.password)
         throw new WorkflowError(400, 'Nieprawidłowy adres źródła.');
+      beforeRequest?.();
       this.worker.record(method, url.href);
       let response;
       try {

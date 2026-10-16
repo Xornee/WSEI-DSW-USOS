@@ -1,3 +1,4 @@
+import { browserNetwork } from './browser-network.mjs';
 import { EventEmitter } from "node:events";
 import { chromium } from "playwright";
 import { createUsosRequest } from "./upstream.mjs";
@@ -70,11 +71,13 @@ export class BrowserWorker extends EventEmitter {
     executablePath = process.env.CHROMIUM_PATH || (process.env.PLAYWRIGHT_BROWSERS_PATH ? chromium.executablePath() : "/usr/bin/chromium"),
     fixtureHtml,
     createRequest,
+    networkFactory = browserNetwork,
     launch = (options) => chromium.launch(options),
   } = {}) {
     super();
     this.executablePath = executablePath;
     this.launch = launch;
+    this.networkFactory = networkFactory;
     // Constructor injection is for synthetic tests, never a route/query parameter.
     this.fixtureHtml = fixtureHtml;
     this.createRequest = createRequest;
@@ -116,12 +119,16 @@ export class BrowserWorker extends EventEmitter {
   }
 
   async start() {
+    const network = this.network = await this.networkFactory();
+    if (this.closed) { await network?.close(); this.network = null; return; }
     this.browser = await this.launch({
+      ...(network ? { proxy: { server: network.server, bypass: network.bypass } } : {}),
+      args: ['--disable-quic', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
       executablePath: this.executablePath,
       headless: true,
       chromiumSandbox: true,
     });
-    if (this.closed) return this.browser.close();
+    if (this.closed) { await this.close(); return; }
     this.context = await this.browser.newContext({
       viewport: VIEWPORT,
       locale: "pl-PL",
@@ -300,13 +307,17 @@ export class BrowserWorker extends EventEmitter {
     this.record("GET", HOME);
     const api = await verifyHandoff(cookies, expected, this.createRequest);
     if (!api) return false;
+    // A failed browser close must remain retryable and must not expose a connected dashboard.
+    try {
+      await this.stopStream();
+      try { await this.browser.close(); }
+      finally { await this.network?.close(); this.network = null; }
+    }
+    catch (error) { await api.dispose().catch(() => {}); throw error; }
     this.api = api;
     this.expectedAccount = expected;
     this.lastCheckedAt = new Date().toISOString();
     this.state = "connected";
-    // Keep only the scoped API jar; close the Microsoft browser/profile.
-    await this.stopStream();
-    await this.browser.close();
     this.browser = null;
     this.context = null;
     this.page = null;
@@ -319,7 +330,8 @@ export class BrowserWorker extends EventEmitter {
     this.closed = true;
     this.state = "disconnected";
     await this.api?.dispose().catch(() => {});
-    await this.browser?.close().catch(() => {});
+    try { await this.browser?.close(); }
+    finally { await this.network?.close(); this.network = null; }
     this.api =
       this.browser =
       this.context =

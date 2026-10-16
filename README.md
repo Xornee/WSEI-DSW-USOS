@@ -216,3 +216,13 @@ Obsługa niestandardowych kontrolek JavaScript zależy od kalibracji danej stron
 ### Mój plan i sprawy uczelniane
 
 Wspólny wybór grup dla Start/Plan/ICS, preferencje osobno dla konta i semestru, eksport kalendarza, mobilna nawigacja i wykrywanie kolejnych modułów USOS wewnątrz panelu: [instrukcja i granice weryfikacji](docs/10-moj-plan-i-moduly.md). Zmiana grup planu nie zapisuje ani nie wypisuje z zajęć na uczelni.
+
+## Google, Microsoft i limit logowania USOS
+
+Platforma obsługuje Google/Microsoft po powiązaniu w profilu i rejestracji aplikacji OAuth. Bez konfiguracji przyciski są wyłączone. Limit równoległego logowania/MFA do USOS wynosi **5**; zwykła praca po połączeniu nie potrzebuje Chromium. Szczegóły konfiguracji przyszłej domeny HTTPS na Azure, rozdzielenie logowania platformy i USOS oraz testy: [instrukcja OAuth i bezpieczeństwa](docs/11-logowanie-google-microsoft.md).
+
+## Rejestracja wyłącznie z kodem
+
+Ustaw sekret `PILOT_REGISTRATION_CODE` w lokalnym, ignorowanym `.env` albo konfiguracji sekretów serwera. Kod musi mieć 16–256 bajtów. Puste ustawienie zamyka rejestrację — nie otwiera jej automatycznie. Każde nowe konto, także pierwsze, wymaga poprawnego kodu; endpoint API sprawdza go przed hashowaniem hasła i zapisaniem konta. Kod jest wspólnym zaproszeniem, nie jednorazowym tokenem. Zmiana kodu nie zmienia istniejących kont; nie jest potrzebny do logowania ani odzyskania konta. Google/Microsoft nadal logują tylko wcześniej powiązane konta. Nigdy nie publikuj rzeczywistego kodu w repo.
+
+Compose automatycznie wczytuje `.env`. Przy bezpośrednim uruchomieniu Node przekazuj tę zmienną w środowisku albo użyj `node --env-file=../.env server.mjs` z katalogu `login-pilot`.

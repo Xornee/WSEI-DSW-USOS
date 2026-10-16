@@ -62,7 +62,12 @@
         <div id="signed-out" hidden>
           <div class="card-label">ZACZNIJ TUTAJ</div>
           <h2 id="form-title">Zaloguj się</h2>
-          <p id="form-help">Użyj konta tej aplikacji, nie hasła Microsoft.</p>
+          <p id="form-help">Użyj hasła aplikacji lub wcześniej powiązanego konta Google / Microsoft.</p>
+          <div class="social-logins" aria-label="Logowanie zewnętrzne">
+            <button id="login-google" type="button" class="secondary" disabled>Zaloguj przez Google</button>
+            <button id="login-microsoft" type="button" class="secondary" disabled>Zaloguj przez Microsoft</button>
+            <p id="social-help" class="muted">Sprawdzanie konfiguracji logowania…</p>
+          </div>
           <form id="account-form">
             <label for="username">Login aplikacji</label>
             <input
@@ -82,6 +87,11 @@
                 autocomplete="nickname"
                 maxlength="80"
               />
+            </div>
+            <div id="registration-code-field" hidden>
+              <label for="registration-code">Kod rejestracji</label>
+              <input id="registration-code" name="registrationCode" type="password" autocomplete="off" maxlength="256" aria-describedby="registration-code-help" />
+              <small id="registration-code-help">Kod otrzymasz od administratora platformy. Jest wymagany przy tworzeniu konta.</small>
             </div>
             <label for="password">Hasło aplikacji</label>
             <input
@@ -131,6 +141,16 @@
           <p class="muted">
             Kliknięcie uruchamia osobne Chromium i otwiera jego podgląd.
           </p>
+          <hr />
+          <section class="social-connections" aria-labelledby="providers-title">
+            <h3 id="providers-title">Sposoby logowania</h3>
+            <p>Powiąż konto Google lub Microsoft, aby wracać bez wpisywania hasła aplikacji. To nie łączy automatycznie z USOS.</p>
+            <label for="provider-password">Hasło aplikacji — potwierdzenie zmiany</label>
+            <input id="provider-password" type="password" autocomplete="current-password" maxlength="256" />
+            <div class="provider-row"><span id="google-status">Google · sprawdzanie…</span><button id="link-google" type="button" class="secondary" disabled>Połącz Google</button></div>
+            <div class="provider-row"><span id="microsoft-status">Microsoft · sprawdzanie…</span><button id="link-microsoft" type="button" class="secondary" disabled>Połącz Microsoft</button></div>
+            <small>Pierwszy raz? Utwórz konto lokalne i powiąż dostawcę tutaj. Hasło lokalne pozostaje sposobem odzyskania dostępu.</small>
+          </section>
           <hr />
           <details><summary>Bezpieczeństwo konta</summary>
             <form id="security-form">

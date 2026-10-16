@@ -22,6 +22,8 @@ const clean = (text: string) =>
     .trim();
 const short = (text: string) => clean(text).replace(/\s+/g, " ");
 
+export const sensitiveQueryName = (name: string): boolean => /token|session|callback|csrf|signature|secret|password|phpsessid|(?:^|[_-])key$|^api[._ -]?key$/i.test(name.split(/[\[\x00]/, 1)[0] ?? '');
+
 export function navigationLink(href: string): string | null {
   try {
     const url = new URL(href, "https://usosweb.ideis.pl/kontroler.php");
@@ -37,15 +39,18 @@ export function navigationLink(href: string): string | null {
         )
       )
         return null;
-      for (const key of [...url.searchParams.keys()])
-        if (/token|session|callback|csrf/i.test(key))
-          url.searchParams.delete(key);
     }
+    for (const key of [...url.searchParams.keys()])
+      if (sensitiveQueryName(key)) url.searchParams.delete(key);
     return url.href;
   } catch {
     return null;
   }
 }
+
+// Full upstream addresses are retained only in process-local weak metadata, never JSON.
+const sourceUrls = new WeakMap<object, string>();
+export const sourceUrlOf = (link: object): string | undefined => sourceUrls.get(link);
 
 function linksOf($: CheerioAPI, element: AnyNode): SourceLink[] {
   const links: SourceLink[] = [];
@@ -53,11 +58,13 @@ function linksOf($: CheerioAPI, element: AnyNode): SourceLink[] {
     .find("a[href],usos-link[href],usos-module-link-tile[href]")
     .addBack("[href]")
     .each((_, a) => {
-      const url = navigationLink($(a).attr("href") ?? "");
+      const raw = $(a).attr("href") ?? "";
+      const url = navigationLink(raw);
       const label =
         short($(a).text()) || $(a).attr("title") || "Otwórz szczegóły";
-      if (url && !links.some((link) => link.url === url))
-        links.push({ label, url });
+      if (url && !links.some((link) => sourceUrls.get(link) === raw)) {
+        const link = { label, url }; sourceUrls.set(link, raw); links.push(link);
+      }
     });
   return links;
 }

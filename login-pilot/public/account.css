@@ -135,3 +135,28 @@
 .account-card .secondary {
   width: 100%;
 }
+
+.social-logins { display: grid; gap: 10px; margin: 24px 0; padding-bottom: 24px; border-bottom: 1px solid var(--line); }
+.social-logins p { margin: 4px 0 0; font-size: 12px; line-height: 1.6; }
+.social-connections h3 { margin: 0 0 8px; font-size: 17px; }
+.social-connections p { font-size: 13px; line-height: 1.6; }
+.provider-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 16px 0; font-size: 12px; }
+.account-card .provider-row button { width: auto; min-height: 44px; }
+.account-card button:disabled { opacity: 1; color: var(--muted); cursor: not-allowed; }
+.account-card button:focus-visible { outline: 2px solid #7e83d7; outline-offset: 3px; }
+@media (max-width: 760px) {
+  .account-layout { display: flex; flex-direction: column; gap: 32px; padding-top: 24px; }
+  .account-story h1 { font-size: 36px; letter-spacing: -1px; }
+  .story-points, .account-footnote { display: none; }
+  .account-story { padding-top: 0; }
+  .account-card { box-sizing: border-box; width: 100%; padding: 24px; }
+  .header-right { flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+}
+body { min-width: 320px; }
+.account-card button:disabled { color: var(--text); }
+@media (max-width: 760px) {
+  header { height: auto; min-height: 82px; padding: 16px; gap: 12px; }
+  .brand-name { margin-left: 8px; font-size: 14px !important; }
+  .header-right { min-width: 0; }
+  .account-layout { padding: 24px 16px; }
+}

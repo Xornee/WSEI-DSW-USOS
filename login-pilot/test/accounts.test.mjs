@@ -1,3 +1,4 @@
+import { REGISTRATION_CODE } from './registration-fixture.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
@@ -37,7 +38,7 @@ class Worker extends EventEmitter {
 }
 async function pilot(t, options = {}) {
   const workers = [];
-  const app = await createPilot({
+  const app = await createPilot({ registrationCode: REGISTRATION_CODE,
     port: 0,
     accountsPath: ":memory:",
     authLimit: 100,
@@ -57,6 +58,7 @@ async function pilot(t, options = {}) {
   return { ...app, workers };
 }
 async function call(app, path, cookie, body, method = "POST", extra = {}) {
+  if (path === '/api/auth/register' && body && typeof body === 'object') body = { ...body, registrationCode: REGISTRATION_CODE };
   return fetch(app.origin + path, {
     method,
     redirect: "manual",
@@ -99,7 +101,7 @@ async function deniedSocket(app, cookie) {
   });
 }
 
-test("accounts persist hashed passwords and permit subsequent users without invitation", async () => {
+test("internal account store persists hashed passwords and local roles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "usos-account-store-"));
   const path = join(directory, "accounts.sqlite");
   let store = new AccountStore(path);
@@ -193,7 +195,7 @@ test("concurrent open registrations yield one administrator and reject duplicate
   }
 });
 
-test("anonymous HTTP and websocket access is denied; open registration retains CSRF and app authentication", async (t) => {
+test("anonymous HTTP and websocket access is denied; code-gated registration retains CSRF and app authentication", async (t) => {
   const app = await pilot(t);
   const root = await call(app, "/", null, undefined, "GET");
   assert.equal(root.status, 303);
@@ -346,7 +348,7 @@ test("authentication attempts are bounded and malformed bodies do not crash the 
 test("expiry and server restart invalidate app sessions but preserve account login", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "usos-account-restart-"));
   const path = join(directory, "accounts.sqlite");
-  let app = await createPilot({ port: 0, accountsPath: path, ttlMs: 100 });
+  let app = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, accountsPath: path, ttlMs: 100 });
   try {
     const a = await register(app);
     await delay(150);
@@ -355,7 +357,7 @@ test("expiry and server restart invalidate app sessions but preserve account log
       401,
     );
     await app.close();
-    app = await createPilot({ port: 0, accountsPath: path });
+    app = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, accountsPath: path });
     assert.equal(
       (await call(app, "/api/status", a.cookie, undefined, "GET")).status,
       401,
@@ -407,6 +409,7 @@ test("real browser account registration, dark theme, menu launch and logout run 
   await page.locator("#username").fill("browserfixture");
   await page.locator("#name").fill("Fixture Account");
   await page.locator("#password").fill(password);
+  await page.locator("#registration-code").fill(REGISTRATION_CODE);
   await page.locator("#submit-account").click();
   await page.waitForSelector("#signed-in:not([hidden])");
   assert.equal(
@@ -499,7 +502,7 @@ test("password boundary accepts eight characters and rejects seven in backend an
     );
     await assert.rejects(
       store.login({ username: "boundary", password: "1234567" }),
-      /minimum 8/,
+      error => error.status === 401,
     );
     const html = await readFile(
       new URL("../public/account.html", import.meta.url),
@@ -512,7 +515,7 @@ test("password boundary accepts eight characters and rejects seven in backend an
   }
 });
 
-test("second user registers in a fresh browser without any invitation and can log back in", async (t) => {
+test("second user registers with a code in a fresh browser and can log back in without it", async (t) => {
   const app = await pilot(t);
   await register(app, "existinguser");
   const browser = await chromium.launch({
@@ -536,10 +539,11 @@ test("second user registers in a fresh browser without any invitation and can lo
   await page.goto(app.origin + "/account");
   await page.waitForSelector("#signed-out:not([hidden])");
   await page.getByRole("button", { name: "Utwórz nowe konto" }).click();
-  assert.equal(await page.locator("#invite").count(), 0);
+  assert.equal(await page.locator("#registration-code").isVisible(), true);
   await page.locator("#username").fill("newuser");
   await page.locator("#name").fill("New Fixture");
   await page.locator("#password").fill("12345678");
+  await page.locator("#registration-code").fill(REGISTRATION_CODE);
   const registered = page.waitForResponse((response) =>
     response.url().endsWith("/api/auth/register"),
   );

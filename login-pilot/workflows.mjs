@@ -6,7 +6,7 @@ import { accountId, HOME } from './browser.mjs';
 const { ACCOUNT_SECTIONS } = await tsImport('../shared/sections.ts', import.meta.url);
 const { UNIVERSITY_RESOURCES } = await tsImport('../shared/university.ts', import.meta.url);
 const { STUDENT_SERVICES } = await tsImport('../shared/student-services.ts', import.meta.url);
-const { parseAccountSection, navigationLink } = await tsImport('../server/usos/scrape/sections.ts', import.meta.url);
+const { parseAccountSection, navigationLink, sensitiveQueryName, sourceUrlOf } = await tsImport('../server/usos/scrape/sections.ts', import.meta.url);
 const ORIGIN = 'https://usosweb.ideis.pl';
 const text = value => value.replace(/\s+/g, ' ').trim();
 const controller = action => `${ORIGIN}/kontroler.php?_action=${action}`;
@@ -28,9 +28,11 @@ const WRITE_ROOTS = ['dodatki/wnioski/', 'dla_stud/rejestracja/', 'dla_stud/stud
     .flatMap(service => service.roots).filter(root => root.endsWith('/'))];
 const READ_EXACT = new Set(['home/grupy', 'home/index']);
 const READ_NAME = /^(?:index|default|lista|list|kalendarz|przedmioty|grupy|grupyDziekanskie|rankingi|wyborJednostki|details|view|show|szczegoly|pokaz\w*|szukaj\w*|wyszukaj\w*|naleznosci\w*|wplaty\w*|kontaWirtualne|planyRatalne|stypendia|pobierz\w*|download\w*|pdf\w*|druk\w*|eksport\w*|kontakt)$/i;
-const MUTATION = /(?:usun|usuń|dodaj|zapisz|zarejestr|wyrejestr|rejestruj|unregister|register|delete|accept|potwierdz|zatwierdz|wyslij|wyślij|submit|save|update|anuluj)/i;
+const MUTATION = /(?:usun|usuń|dodaj|zapisz|zarejestr|wyrejestr|rejestruj|unregister|register|delete|accept|cofnij|rezygn|wycof|odrzuc|zmien|przypisz|odepnij|podlacz|odlacz|zglos|przeslij|opublikuj|ukryj|przywroc|zamknij|wlacz|wylacz|activate|deactivate|remove|edit|create|send|change|set(?:$|[^a-z])|potwierdz|zatwierdz|wyslij|wyślij|submit|save|update|anuluj)/i;
 const FORBIDDEN = /(?:logowanie|wyloguj|logout|password|haslo|hasło|session|token)/i;
 const HIDDEN_NAME = /csrf|token|session|password|haslo/i;
+const READ_QUERY = new Set(['_action','id','os_id','prz_kod','cyk_kod','grupa_kod','nr','jed_org_kod','_pattern','lang','lang_id','page','sort','key','csrf','token']);
+const STATIC_READ_URLS = new Set(UNIVERSITY_RESOURCES.map(resource => new URL(resource.url).href));
 const MAX_TARGETS = 384;
 const MAX_FORMS = 128;
 const TTL = 10 * 60_000;
@@ -39,7 +41,7 @@ const MAX_DOWNLOAD = 8_000_000;
 export class WorkflowError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
-export function workflowUrl(raw, base = HOME, write = false) {
+export function workflowUrl(raw, base = HOME, write = false, label = '') {
   let url;
   try { url = new URL(raw, base); } catch { throw new WorkflowError(400, 'Nieprawidłowy adres czynności.'); }
   const actions = url.searchParams.getAll('_action');
@@ -48,17 +50,41 @@ export function workflowUrl(raw, base = HOME, write = false) {
       !/^[a-zA-Z0-9_/-]+$/.test(actions[0]) || actions[0].split('/').some(p => !p || p === '.' || p === '..') ||
       (!(write ? WRITE_ROOTS : READ_ROOTS).some(root => actions[0].startsWith(root)) && (write || !READ_EXACT.has(actions[0]))))
     throw new WorkflowError(400, 'Ta czynność nie należy do obsługiwanych spraw studenta.');
-  if (!write && (MUTATION.test(actions[0]) || !READ_NAME.test(actions[0].split('/').at(-1))))
+  const trustedStatic = STATIC_READ_URLS.has(url.href);
+  const indexSelection = WRITE_ROOTS.some(root => actions[0].startsWith(root)) && /\/(?:index|default|list|lista)$/i.test(actions[0]) && [...url.searchParams.keys()].some(key => !['_action','lang','lang_id','page','sort'].includes(key.toLowerCase()));
+  if (!write && !trustedStatic && (indexSelection || MUTATION.test(actions[0]) || MUTATION.test(label.normalize('NFD').replace(/\p{M}/gu, '').replace(/ł/gi, 'l')) ||
+      [...url.searchParams].some(([key, value]) => key !== '_action' && (!READ_QUERY.has(key.toLowerCase()) || MUTATION.test(value))) ||
+      !READ_NAME.test(actions[0].split('/').at(-1))))
     throw new WorkflowError(409, 'Ta czynność wymaga potwierdzenia.');
   return url;
 }
 const keyFor = raw => {
   const result = navigationLink(raw);
-  if (result) return result;
-  const url = new URL(raw);
-  for (const name of [...url.searchParams.keys()]) if (/token|session|csrf|key/i.test(name)) url.searchParams.delete(name);
+  const url = new URL(result || raw);
+  for (const name of [...url.searchParams.keys()]) if (sensitiveQueryName(name)) url.searchParams.delete(name);
   return url.href;
 };
+const UPLOAD_TYPES = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif' };
+const UPLOAD_MAGIC = {
+  'application/pdf': [Buffer.from('%PDF-')],
+  'image/png': [Buffer.from([137,80,78,71,13,10,26,10])],
+  'image/jpeg': [Buffer.from([255,216,255])],
+  'image/gif': [Buffer.from('GIF87a'), Buffer.from('GIF89a')],
+};
+const uploadRules = accept => (accept || '').toLowerCase().split(',').map(value => value.trim()).filter(Boolean);
+const acceptsType = (rule, extension, type) => rule.startsWith('.') ? rule === '.' + extension : rule.endsWith('/*') ? type.startsWith(rule.slice(0,-1)) : type === rule;
+async function validateUpload(field, blob) {
+  const name = blob.name || '', type = (blob.type || '').toLowerCase();
+  if (!name || name.length > 150 || /[\x00-\x1f\x7f/\\]/.test(name))
+    throw new WorkflowError(400, 'Nieprawidłowa nazwa załącznika.');
+  const extension = name.toLowerCase().split('.').at(-1), expected = UPLOAD_TYPES[extension];
+  if (!expected || !uploadRules(field.accept).some(rule => acceptsType(rule, extension, expected)))
+    throw new WorkflowError(400, 'Załącznik nie pasuje do obsługiwanego formatu wymaganego przez uczelnię.');
+  const bytes = Buffer.from(await blob.slice(0, 12).arrayBuffer());
+  if ((type && type !== expected && type !== 'application/octet-stream') || !UPLOAD_MAGIC[expected].some(magic => bytes.subarray(0,magic.length).equals(magic)))
+    throw new WorkflowError(400, 'Zawartość załącznika nie odpowiada deklarowanemu formatowi.');
+}
+
 const controlTypes = new Set(['text', 'email', 'number', 'date', 'tel', 'url', 'textarea', 'select', 'checkbox', 'radio', 'file']);
 
 /** Connection-local capability store: URLs/hidden fields never come from the client. */
@@ -87,7 +113,7 @@ export class WorkflowConnection {
     try {
       const absolute = new URL(raw, base).href;
       let url, action = false;
-      try { url = workflowUrl(absolute, base); }
+      try { url = workflowUrl(absolute, base, false, label); }
       catch { url = workflowUrl(absolute, base, true); action = true; }
       const download = /pobierz|download|pdf|załącznik|zalacznik/i.test(`${url.searchParams.get('_action')} ${label}`);
       const workflow = this.issue(url.href, label, action ? 'action' : download ? 'download' : 'page');
@@ -108,11 +134,16 @@ export class WorkflowConnection {
   }
   decorate(data, html, base) {
     const links = this.collectLinks(html, base);
-    const byUrl = new Map(links.map(link => [link.url, link]));
+    const byUrl = new Map();
+    for (const link of links) { const key = JSON.stringify([link.url, link.label]); const list = byUrl.get(key) || []; list.push(link); byUrl.set(key, list); }
     const visit = value => {
       if (!value || typeof value !== 'object') return;
       if (typeof value.url === 'string' && typeof value.label === 'string') {
-        const link = byUrl.get(keyFor(value.url));
+        const raw = sourceUrlOf(value);
+        const matches = byUrl.get(JSON.stringify([keyFor(value.url), value.label])) || [];
+        // Never correlate distinct capability addresses through a lossy sanitized URL.
+        const link = raw ? this.discoveredLink(raw, value.label, base) : matches.length === 1 ? matches[0] : null;
+        value.url = keyFor(value.url);
         if (link) value.workflow = link.workflow;
       }
       if (typeof value.text === 'string' && Array.isArray(value.links))
@@ -172,7 +203,7 @@ export class WorkflowConnection {
           options: type === 'checkbox' || type === 'radio' ? [{ value: item.attr('value') || 'on', label, selected: item.is('[checked]'), disabled: false }] : options,
           maxLength: Math.min(Number(item.attr('maxlength')) || 16000, 16000), min: item.attr('min'), max: item.attr('max'), step: item.attr('step'), accept: item.attr('accept') });
       });
-      if (method === 'GET' && fields.some(field => field.type === 'file')) problem = true;
+      if (fields.some(field => field.type === 'file' && (method === 'GET' || !uploadRules(field.accept).some(rule => Object.entries(UPLOAD_TYPES).some(([extension, type]) => acceptsType(rule, extension, type)))))) problem = true;
       if (fields.length > 80 || hidden.length > 100 || problem) { notices.push('Formularz zawiera niestandardowe kontrolki; jego obsługa wymaga kalibracji integracji.'); return; }
       const title = text(element.find('legend,h2,h3').first().text()) || text(element.prevAll('h1,h2,h3').first().text()) || 'Formularz sprawy';
       for (const submit of submits.length ? submits : [{ label: method === 'GET' ? 'Szukaj' : 'Zatwierdź', name: '', value: '' }]) {
@@ -260,10 +291,11 @@ export class WorkflowConnection {
     const changesAccount = form.method === 'POST' || form.mutation;
     if (changesAccount && input.confirmed !== true) throw new WorkflowError(409, 'Potwierdź zmianę na koncie uczelnianym.');
     const entries = this.validateFields(form, input.fields, files);
+    for (const file of files) await validateUpload(form.fields.find(field => field.type === 'file' && field.name === file.name), file.blob);
     // Revalidate identity before consuming the single-use action and before any write.
     await this.connection.privatePage('home/index');
     this.connection.assertConnected();
-    if (!this.forms.has(input.formId)) throw new WorkflowError(410, 'Formularz został już wysłany.');
+    if (this.forms.get(input.formId) !== form || Date.now() > form.expires) { this.forms.delete(input.formId); throw new WorkflowError(410, 'Formularz wygasł lub został już wysłany.'); }
     this.forms.delete(input.formId);
     let url = workflowUrl(form.url, HOME, changesAccount);
     let body;
@@ -278,7 +310,7 @@ export class WorkflowConnection {
       for (const file of files) body.append(file.name, file.blob, file.blob.name);
     } else body = new URLSearchParams(entries);
     // A timeout may mean the write reached USOS: never retry it automatically.
-    const result = await this.connection.privatePageUrl(url.href, { method: form.method, body, mutation: changesAccount, includeUrl: true });
+    const result = await this.connection.privatePageUrl(url.href, { method: form.method, body, mutation: changesAccount, includeUrl: true, beforeRequest: () => { if (Date.now() > form.expires) throw new WorkflowError(410, 'Formularz wygasł przed wysłaniem.'); } });
     if (changesAccount) { this.connection.cache.clear(); this.forms.clear(); }
     const page = this.render(result.html, result.url, form.title);
     // Back/refresh on a POST result never replays the source action.
@@ -297,6 +329,7 @@ export class WorkflowConnection {
     await this.connection.privatePage('home/index');
     return this.connection.schedule(async () => {
       this.connection.assertConnected();
+      this.target(id); // Recheck after identity verification and scheduler wait.
       let response;
       try {
         response = await this.connection.worker.api.get(target.url, { signal: this.connection.controller.signal, maxBytes: MAX_DOWNLOAD });

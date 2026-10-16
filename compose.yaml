@@ -12,7 +12,14 @@ services:
     environment:
       PILOT_PORT: "8789"
       PILOT_BIND_HOST: "0.0.0.0"
-      PILOT_PUBLIC_ORIGIN: "http://127.0.0.1:${APP_PORT:-8789}"
+      PILOT_PUBLIC_ORIGIN: "${PILOT_PUBLIC_ORIGIN:-http://127.0.0.1:${APP_PORT:-8789}}"
+      PILOT_REGISTRATION_CODE: "${PILOT_REGISTRATION_CODE:-}"
+      PILOT_MAX_BROWSERS: "${PILOT_MAX_BROWSERS:-5}"
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      MICROSOFT_CLIENT_ID: "${MICROSOFT_CLIENT_ID:-}"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
+      MICROSOFT_TENANT_ID: "${MICROSOFT_TENANT_ID:-}"
       PILOT_ACCOUNTS_PATH: "/data/accounts/accounts.sqlite"
       WORKER_BACKEND: "local"
       TIMETABLE_TRACK_ID: "${TIMETABLE_TRACK_ID:-958}"
@@ -31,7 +38,7 @@ services:
       - seccomp=./docker/chromium-seccomp.json
     mem_limit: 3g
     cpus: 2
-    pids_limit: 512
+    pids_limit: 1024
     healthcheck:
       test: ["CMD", "node", "-e", "const http=require('node:http');const req=http.get({hostname:'127.0.0.1',port:8789,path:'/readyz',headers:{Host:new URL(process.env.PILOT_PUBLIC_ORIGIN).host}},r=>{r.resume();process.exit(r.statusCode===200?0:1)});req.on('error',()=>process.exit(1));"]
       interval: 20s

@@ -349,7 +349,8 @@ export class KubernetesPool {
 
 export class KubernetesBrowserWorker extends BrowserWorker {
   constructor({ pool, ...options }) {
-    super(options);
+    // Remote workers rely on the namespace NetworkPolicy, not an app-loopback proxy.
+    super({ ...options, networkFactory: async () => null });
     this.pool = pool;
     this.lease = null;
     this.launch = async () => {

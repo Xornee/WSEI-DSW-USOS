@@ -1,3 +1,4 @@
+import { REGISTRATION_CODE } from './registration-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -11,7 +12,7 @@ const grid = await readFile(new URL('../../server/usos/timetable-fixtures/semest
 test('public timetable works without app/USOS login; private APIs stay protected', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'usos-timetable-test-'));
   const timetable = new TimetableRepository({ intervalMs: 0, fetchImpl: async url => new Response(String(url).includes('GridCustom') ? grid : page) });
-  const pilot = await createPilot({ port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable });
+  const pilot = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable });
   t.after(async () => { await pilot.close(); await rm(dir, { recursive: true, force: true }); });
   const response = await fetch(pilot.origin + '/api/plan?trackId=958');
   assert.equal(response.status, 200); assert.equal((await response.json()).data.entries.length, 49);
@@ -75,7 +76,7 @@ function publicTimetable() {
 const get = (pilot, cookie, path) => fetch(pilot.origin + path, { headers: cookie ? { cookie } : {} });
 const post = (pilot, cookie, path, body) => fetch(pilot.origin + path, { method: 'POST', headers: { cookie, origin: pilot.origin, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
 async function signedOwner(pilot, username) {
-  const response = await post(pilot, '', '/api/auth/register', { username, name: 'Synthetic test', password: 'synthetic-only-password' });
+  const response = await post(pilot, '', '/api/auth/register', { username, registrationCode: REGISTRATION_CODE, name: 'Synthetic test', password: 'synthetic-only-password' });
   assert.equal(response.status, 201); return response.headers.get('set-cookie').split(';')[0];
 }
 async function connect(pilot, cookie) {
@@ -84,7 +85,7 @@ async function connect(pilot, cookie) {
 }
 test('real HTTP route chooses separate tracks for two account sessions without trackId; public stays explicit', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'usos-auto-track-http-')); let count = 0;
-  const pilot = await createPilot({ port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable: publicTimetable(), dashboardIntervalMs: 0, verifyIntervalMs: 0, workerFactory: () => ++count === 1 ? new AcademicWorker('1101', 'Programowanie i analiza danych') : new AcademicWorker('1102', 'Sieci komputerowe') });
+  const pilot = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable: publicTimetable(), dashboardIntervalMs: 0, verifyIntervalMs: 0, workerFactory: () => ++count === 1 ? new AcademicWorker('1101', 'Programowanie i analiza danych') : new AcademicWorker('1102', 'Sieci komputerowe') });
   t.after(async () => { await pilot.close(); await rm(dir, { recursive: true, force: true }); });
   const a = await signedOwner(pilot, 'fixture-alpha'), b = await signedOwner(pilot, 'fixture-beta');
   await connect(pilot, a); await new Promise(r => setTimeout(r, 1250)); await connect(pilot, b);
@@ -103,7 +104,7 @@ test('real HTTP route chooses separate tracks for two account sessions without t
 });
 test('ambiguous profile offers named candidates and validates a choice without falling back to default', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'usos-auto-track-ambiguous-'));
-  const pilot = await createPilot({ port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable: publicTimetable(), dashboardIntervalMs: 0, verifyIntervalMs: 0, workerFactory: () => new AcademicWorker('1101', 'Programowanie i analiza danych', '') });
+  const pilot = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, accountsPath: join(dir, 'accounts.sqlite'), timetable: publicTimetable(), dashboardIntervalMs: 0, verifyIntervalMs: 0, workerFactory: () => new AcademicWorker('1101', 'Programowanie i analiza danych', '') });
   t.after(async () => { await pilot.close(); await rm(dir, { recursive: true, force: true }); });
   const cookie = await signedOwner(pilot, 'fixture-ambiguous'); await connect(pilot, cookie);
   const result = await (await get(pilot, cookie, '/api/plan')).json(); assert.equal(result.data.selection.state, 'choice_required'); assert.deepEqual(result.data.selection.candidates.map(x => x.trackId).sort(), ['954', '958']); assert.equal(result.data.timetable, undefined);

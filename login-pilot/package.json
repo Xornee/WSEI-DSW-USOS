@@ -10,11 +10,12 @@
     "build:dashboard": "node build-dashboard.mjs",
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs",
-    "check": "node --check server.mjs && node --check browser.mjs && node --check dashboard.mjs && node --check build-dashboard.mjs && node --check public/app.js && node --check public/dashboard-session.js && node --check accounts.mjs && node --check public/account.js && node --check kubernetes.mjs && node --check k8s/chromium-server.mjs",
+    "check": "node --check server.mjs && node --check browser.mjs && node --check browser-network.mjs && node --check dashboard.mjs && node --check build-dashboard.mjs && node --check public/app.js && node --check public/dashboard-session.js && node --check accounts.mjs && node --check social-login.mjs && node --check registration.mjs && node --check public/account.js && node --check kubernetes.mjs && node --check k8s/chromium-server.mjs",
     "start:kubernetes": "bash k8s/start-local.sh",
     "test:kubernetes": "node test/kubernetes-live.mjs"
   },
   "dependencies": {
+    "jose": "6.2.12",
     "playwright": "1.63.0",
     "tsx": "4.23.13",
     "ws": "8.21.3"

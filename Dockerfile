@@ -14,6 +14,17 @@ COPY login-pilot/package.json login-pilot/package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 
 FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+# Runtime uses Chromium only. Remove unused vulnerable WebKit/media and package-manager components.
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends openssl libssl3t64 \
+    && apt-get purge -y gstreamer1.0-plugins-bad libgstreamer-plugins-bad1.0-0 \
+    && rm -rf /var/lib/apt/lists/* /usr/lib/node_modules/npm /usr/lib/node_modules/undici \
+    && rm -f /usr/bin/npm /usr/bin/npx
+# Chromium does not use the Firefox/WebKit/FFmpeg/GStreamer stack shipped in the upstream all-browser image.
+RUN apt-get purge -y libavcodec60 libavfilter9 libavformat60 libavutil58 libpostproc57 \
+    libswresample4 libswscale7 libsoup-3.0-0 libsoup-3.0-common \
+    gstreamer1.0-plugins-base gstreamer1.0-plugins-good libgstreamer-plugins-base1.0-0 \
+    && rm -rf /ms-playwright/firefox-* /ms-playwright/webkit-* /ms-playwright/ffmpeg-* /var/lib/apt/lists/*
 # One local app container, independent Chromium contexts; no Kubernetes or Docker socket.
 WORKDIR /app
 COPY --from=build /usr/local/bin/node /usr/local/bin/node

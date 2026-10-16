@@ -1,3 +1,4 @@
+import { REGISTRATION_CODE } from './registration-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
@@ -12,10 +13,11 @@ class Worker extends EventEmitter {
   async close() { this.attempts++; this.state = 'disconnected'; }
 }
 async function app(t, options = {}) {
- const a = await createPilot({ port:0, accountsPath:':memory:', dashboardFactory:()=>({ical:true,close(){}}), ...options });
+ const a = await createPilot({ registrationCode: REGISTRATION_CODE, port:0, accountsPath:':memory:', dashboardFactory:()=>({ical:true,close(){}}), ...options });
  t.after(()=>a.close()); return a;
 }
 async function post(a, path, body, cookie) {
+ if(path==='/api/auth/register'&&body&&typeof body==='object')body={...body,registrationCode:REGISTRATION_CODE};
  return fetch(a.origin+path,{method:'POST',headers:{origin:a.origin,'content-type':'application/json',...(cookie?{cookie}:{})},body:body===undefined?undefined:JSON.stringify(body)});
 }
 async function register(a,name) {

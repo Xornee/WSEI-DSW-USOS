@@ -39,6 +39,14 @@ function passwordOf(value) {
   return value;
 }
 
+function identityOf(identity) {
+  if (!identity || !['google','microsoft'].includes(identity.provider) || typeof identity.issuer !== 'string' ||
+      !identity.issuer || identity.issuer.length > 512 || typeof identity.subject !== 'string' || !identity.subject ||
+      identity.subject.length > 256 || /[\x00-\x1f\x7f]/.test(identity.issuer + identity.subject))
+    throw new AccountError(400, 'Nieprawidłowa tożsamość dostawcy.');
+  return identity;
+}
+
 /** Durable app identities only. USOS cookies, calendar URLs and browser state never enter this store. */
 export class AccountStore {
   constructor(path) {
@@ -65,7 +73,40 @@ export class AccountStore {
       scope TEXT NOT NULL, choices TEXT NOT NULL,
       PRIMARY KEY(user_id,scope)
     );`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS social_identities (
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL CHECK(provider IN ('google','microsoft')), issuer TEXT NOT NULL, subject TEXT NOT NULL,
+      PRIMARY KEY(provider,issuer,subject), UNIQUE(user_id,provider)
+    );`);
   }
+  hasUser(username) { return Boolean(this.db.prepare('SELECT 1 FROM users WHERE username=?').get(username)); }
+  socialIdentities(userId) {
+    return this.db.prepare('SELECT provider FROM social_identities WHERE user_id=? ORDER BY provider').all(userId).map(row => row.provider);
+  }
+  linkSocial(userId, identity) {
+    identityOf(identity);
+    const user = this.db.prepare('SELECT id FROM users WHERE id=?').get(userId);
+    if (!user || this.security(userId).disabled) throw new AccountError(401, 'Zaloguj się ponownie.');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = this.db.prepare('SELECT user_id FROM social_identities WHERE provider=? AND issuer=? AND subject=?')
+        .get(identity.provider, identity.issuer, identity.subject);
+      if (existing && existing.user_id !== userId) throw new AccountError(409, 'Ta tożsamość jest już powiązana z innym kontem.');
+      if (this.socialIdentities(userId).includes(identity.provider) && !existing)
+        throw new AccountError(409, 'Najpierw odłącz poprzednie konto tego dostawcy.');
+      if (!existing) this.db.prepare('INSERT INTO social_identities VALUES (?,?,?,?)').run(userId, identity.provider, identity.issuer, identity.subject);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+  }
+  loginSocial(identity) {
+    identityOf(identity);
+    const user = this.db.prepare(`SELECT users.* FROM users JOIN social_identities ON users.id=social_identities.user_id
+      WHERE provider=? AND issuer=? AND subject=?`).get(identity.provider, identity.issuer, identity.subject);
+    if (!user || this.security(user.id).disabled)
+      throw new AccountError(401, 'Najpierw utwórz konto lokalne i powiąż dostawcę w swoim profilu. Zablokowane konto wymaga odzyskania dostępu.');
+    return publicUser(user);
+  }
+  unlinkSocial(userId, provider) { this.db.prepare('DELETE FROM social_identities WHERE user_id=? AND provider=?').run(userId, provider); }
   planPreferences(userId) {
     return {
       get: scope => {
@@ -118,10 +159,12 @@ export class AccountStore {
       throw error;
     }
   }
-  async login(input) {
+  async login(input, forceFailure = false) {
     const username = usernameOf(input.username);
-    const password = passwordOf(input.password);
-    const user = this.db
+    let password;
+    try { password = passwordOf(input.password); }
+    catch { throw new AccountError(401, 'Nieprawidłowy login lub hasło.'); }
+    const user = forceFailure ? undefined : this.db
       .prepare("SELECT * FROM users WHERE username=?")
       .get(username);
     const hash = await derive(password, user?.salt || this.dummySalt, 64, COST);
@@ -134,9 +177,10 @@ export class AccountStore {
     return this.db.prepare('SELECT version,disabled,recovery_hash FROM account_security WHERE user_id=?').get(id)
       || { version: 0, disabled: 0, recovery_hash: null };
   }
-  async securityAction(user, input, action) {
+  async securityAction(user, input, action, beforeChange = () => {}) {
     // A valid app cookie alone is insufficient for credential operations.
     await this.login({ username: user.username, password: input.currentPassword });
+    beforeChange(user.id);
     if (action === 'recovery-code') {
       const code = randomBytes(32).toString('hex');
       const hash = createHash('sha256').update(code).digest('hex');
@@ -171,7 +215,7 @@ export class AccountStore {
     this.db.prepare(`INSERT INTO account_security(user_id,version) VALUES (?,1)
       ON CONFLICT(user_id) DO UPDATE SET version=version+1`).run(id);
   }
-  async recover(input) {
+  async recover(input, beforeChange = () => {}) {
     const username = usernameOf(input.username);
     const password = passwordOf(input.newPassword);
     const user = this.db.prepare('SELECT * FROM users WHERE username=?').get(username);
@@ -184,11 +228,14 @@ export class AccountStore {
       throw new AccountError(401,'Nieprawidłowy login lub kod odzyskiwania.');
     const salt = randomBytes(16).toString('hex');
     const hash = (await derive(password,salt,64,COST)).toString('hex');
+    beforeChange(user.id);
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const used = this.db.prepare('UPDATE account_security SET recovery_hash=NULL,disabled=0,version=version+1 WHERE user_id=? AND recovery_hash=?').run(user.id, security.recovery_hash);
       if (used.changes !== 1) throw new AccountError(401,'Kod został już wykorzystany.');
       this.db.prepare('UPDATE users SET salt=?,hash=? WHERE id=?').run(salt,hash,user.id);
+      // Recovery is a compromise boundary: previously linked providers must be reverified.
+      this.db.prepare('DELETE FROM social_identities WHERE user_id=?').run(user.id);
       this.db.exec('COMMIT');
     } catch(error) { this.db.exec('ROLLBACK'); throw error; }
     return publicUser(user);

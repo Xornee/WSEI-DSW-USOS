@@ -278,6 +278,7 @@ test("two workers are independent, third slot is rejected, disposal frees capaci
   const pilot = await createPilot({
     allowAnonymousForTests: true,
     port: 0,
+    maxBrowsers: 2,
     workerFactory: () => {
       const w = new FakeWorker();
       workers.push(w);

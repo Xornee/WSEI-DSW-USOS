@@ -1,3 +1,4 @@
+import { REGISTRATION_CODE } from './registration-fixture.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -14,13 +15,13 @@ function get(port, path, headers = {}) {
   });
 }
 test("container binding requires explicit canonical origin and rejects malformed origin", async () => {
-  await assert.rejects(createPilot({ bindHost: "0.0.0.0" }), /public origin/);
+  await assert.rejects(createPilot({ registrationCode: REGISTRATION_CODE, bindHost: "0.0.0.0" }), /public origin/);
   for (const publicOrigin of ["file:///tmp/test", "https://app.test/path", "https://user:pass@app.test"]) {
-    await assert.rejects(createPilot({ publicOrigin }), /origin/);
+    await assert.rejects(createPilot({ registrationCode: REGISTRATION_CODE, publicOrigin }), /origin/);
   }
 });
 test("canonical host/origin remain enforced when container binds all interfaces", async t => {
-  const app = await createPilot({ port: 0, bindHost: "0.0.0.0",
+  const app = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, bindHost: "0.0.0.0",
     publicOrigin: "https://app.test", accountsPath: ":memory:" });
   t.after(() => app.close());
   // The listener address is exposed only to the caller, not through an API.
@@ -47,11 +48,12 @@ test("in-cluster client uses rotated token file, exact endpoint and dedicated ap
 });
 
 test("HTTPS canonical origin adds Secure to owner cookies including logout", async t => {
-  const app = await createPilot({ port: 0, publicOrigin: "https://app.test",
+  const app = await createPilot({ registrationCode: REGISTRATION_CODE, port: 0, publicOrigin: "https://app.test",
     accountsPath: ":memory:" });
   t.after(() => app.close());
   async function post(path, data) {
     return new Promise((resolve, reject) => {
+      if (path === '/api/auth/register') data = { ...data, registrationCode: REGISTRATION_CODE };
       const body = JSON.stringify(data);
       const req = request({ host: "127.0.0.1", port: app.address.port, path, method: "POST",
         headers: { Host: "app.test", Origin: "https://app.test", "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) }

@@ -2,6 +2,7 @@ import { TrackCatalog, publicPlan, studyHints, trackSelection } from './usos/tim
 import { TimetableRepository, TimetableError } from './usos/timetable.mjs'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
+import { localBoundary } from './security.js'
 import { AccountSectionsRepository } from './usos/account-sections.js'
 import { isAccountSectionId } from '../shared/sections.js'
 import { PublicUniversityRepository } from './usos/public-repository.js'
@@ -36,6 +37,7 @@ const repo: UsosRepository = client.configured
 const timetable = new TimetableRepository({ defaultTrackId: process.env.TIMETABLE_TRACK_ID || '958' })
 const trackCatalog = new TrackCatalog(timetable)
 const app = new Hono()
+app.use('*', localBoundary(config.port))
 const sections = new AccountSectionsRepository(client, config.cacheTtl)
 const publicUniversity = new PublicUniversityRepository(config.cacheTtl)
 

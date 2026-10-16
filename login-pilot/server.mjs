@@ -12,6 +12,8 @@ import { BrowserWorker } from "./browser.mjs";
 import { WorkflowError } from './workflows.mjs';
 import { PlanPreferenceError } from './personal-plan.mjs';
 import { serializePlan } from '../shared/plan-calendar.mjs';
+import { registrationGate } from './registration.mjs';
+import { SocialLogin, SocialLoginError, socialConfiguration } from './social-login.mjs';
 import {
   DashboardConnection,
   DashboardError,
@@ -42,7 +44,14 @@ export async function createPilot({
   publicOrigin,
   workerFactory = () => new BrowserWorker(),
   ttlMs = 30 * 60_000,
-  maxBrowsers = 2,
+  maxBrowsers = 5,
+  registrationCode = process.env.PILOT_REGISTRATION_CODE || '',
+  loginIdleMs = 5 * 60_000,
+  loginHardMs = 10 * 60_000,
+  loginStartIntervalMs = 1200,
+  socialConfig = socialConfiguration(),
+  socialFetch = fetch,
+  socialProvidersForTests = null,
   verifyIntervalMs = 12_000,
   dashboardFactory,
   dashboardIntervalMs = 1200,
@@ -56,34 +65,55 @@ export async function createPilot({
   authLimit = 12,
   authWindowMs = 60_000,
 } = {}) {
+  if (!Number.isInteger(maxBrowsers) || maxBrowsers < 1 || maxBrowsers > 8 ||
+      !Number.isFinite(loginIdleMs) || loginIdleMs < 1 || !Number.isFinite(loginHardMs) || loginHardMs < loginIdleMs ||
+      !Number.isFinite(loginStartIntervalMs) || loginStartIntervalMs < 0) throw new Error('Invalid login capacity configuration');
   if (!["127.0.0.1", "0.0.0.0"].includes(bindHost))
     throw new Error("Invalid bind host");
   if (publicOrigin !== undefined) {
     const url = new URL(publicOrigin);
     if (!["http:", "https:"].includes(url.protocol) || url.origin !== publicOrigin ||
-        url.username || url.password)
+        url.username || url.password || (url.protocol === 'http:' && !['127.0.0.1', 'localhost'].includes(url.hostname)))
       throw new Error("Invalid public origin");
   }
   if (bindHost !== "127.0.0.1" && !publicOrigin)
     throw new Error("A public origin is required for non-loopback binding");
+  const registration = registrationGate(registrationCode);
   const sessions = new Map();
   const accounts = allowAnonymousForTests
     ? null
     : new AccountStore(accountsPath);
   const authBusy = new Set();
-  const authAttempts = new Map();
+  const authAttempts = { source: new Map(), account: new Map(), social: new Map(), public: new Map(), unknown: new Map() };
+  const publicImports = new Map();
+  let publicImportCount = 0, anonymousImportCount = 0;
   const cleanup = createCleanup({ retryMs: cleanupRetryMs });
+  const completedSocial = new Map();
+  const social = new SocialLogin({ config: socialConfig, fetcher: socialFetch, providersForTests: socialProvidersForTests });
   function budget(key, limit) {
     const now = Date.now();
-    for (const [name, item] of authAttempts) if (now >= item.until) authAttempts.delete(name);
-    const old = authAttempts.get(key);
-    if (!old && authAttempts.size >= 4096) return false;
+    const map = authAttempts[key.split(':', 1)[0]] || authAttempts.source;
+    for (const [name, item] of map) if (now >= item.until) map.delete(name);
+    const old = map.get(key);
+    if (!old && map.size >= 4096) {
+      if (map === authAttempts.account) return false; // Never evict a live known-account limit.
+      map.delete(map.keys().next().value);
+    }
     const item = old || { count: 0, until: now + authWindowMs };
-    authAttempts.set(key, item);
+    map.delete(key); map.set(key, item);
     return ++item.count <= limit;
   }
   let origin;
   let lastUpstreamStart = 0;
+  let launchQueue = Promise.resolve();
+  function waitForLaunch() {
+    const next = launchQueue.then(async () => {
+      const wait = loginStartIntervalMs - (Date.now() - lastUpstreamStart);
+      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+      lastUpstreamStart = Date.now();
+    });
+    launchQueue = next.catch(() => {}); return next;
+  }
   const schedule = createScheduler(dashboardIntervalMs);
   const trackCatalog = timetable ? new TrackCatalog(timetable) : null;
   const makeDashboard =
@@ -136,11 +166,8 @@ export async function createPilot({
   });
 
   function owner(req) {
-    const value = req.headers.cookie
-      ?.split(";")
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${COOKIE}=`))
-      ?.slice(COOKIE.length + 1);
+    const values = (req.headers.cookie || '').split(';').map(part => part.trim()).filter(part => part.startsWith(`${ownerCookie()}=`));
+    const value = values.length === 1 ? values[0].slice(ownerCookie().length + 1) : '';
     const session = value && /^[a-f0-9]{64}$/.test(value) ? sessions.get(value) : undefined;
     if (session?.user && accounts) {
       const current = accounts.security(session.user.id);
@@ -199,17 +226,137 @@ export async function createPilot({
       lastVerify: 0,
     };
   }
+  function ownerCookie() { return origin.startsWith('https:') ? '__Host-usos_dashboard_owner' : COOKIE; }
   function setOwnerCookie(res, id) {
     res.setHeader(
       "Set-Cookie",
-      `${COOKIE}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.ceil(ttlMs / 1000)}${origin.startsWith("https:") ? "; Secure" : ""}`,
+      `${ownerCookie()}=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${Math.ceil(ttlMs / 1000)}${origin.startsWith("https:") ? "; Secure" : ""}`,
     );
+  }
+  function flowCookie() { return origin.startsWith('https:') ? '__Host-usos_oidc_flow' : 'usos_oidc_flow'; }
+  function setFlowCookie(res, value, maxAge = 300) {
+    res.setHeader('Set-Cookie', `${flowCookie()}=${value}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${origin.startsWith('https:') ? '; Secure' : ''}`);
+  }
+  function readFlowCookie(req) {
+    const values = (req.headers.cookie || '').split(';').map(part => part.trim()).filter(part => part.startsWith(flowCookie() + '='));
+    return values.length === 1 ? values[0].slice(flowCookie().length + 1) : '';
+  }
+  async function socialRoute(req, res, json, session, url) {
+    if (!accounts) return json(404, { error: 'Logowanie zewnętrzne wymaga kont platformy.' });
+    if (req.method === 'GET' && url.pathname === '/api/auth/providers')
+      return json(200, { providers: social.publicProviders(), linked: session?.user ? accounts.socialIdentities(session.user.id) : [] });
+    for (const [key, proof] of completedSocial) if (proof.expires <= Date.now()) completedSocial.delete(key);
+    if (url.pathname === '/api/auth/oauth/complete') {
+      let key, acquired = false;
+      try {
+        if (req.method !== 'POST' || !validOrigin(req) || url.search || Number(req.headers['content-length']) > 0 || req.headers['transfer-encoding'])
+          throw new SocialLoginError(403, 'Potwierdź logowanie na stronie platformy.');
+        const browser = readFlowCookie(req), proof = completedSocial.get(browser);
+        if (!proof) throw new SocialLoginError(410, 'Logowanie wygasło lub zostało już wykorzystane.');
+        completedSocial.delete(browser); setFlowCookie(res, '', 0);
+        const { flow, identity } = proof;
+        const user = flow.action === 'link' ? session?.user : accounts.loginSocial(identity);
+        if (!user) throw new SocialLoginError(401, 'Zaloguj się i rozpocznij powiązanie ponownie.');
+        key = user.username;
+        if (authBusy.has(key) || authBusy.size >= 2) throw new SocialLoginError(429, 'Operacja konta jest w toku. Rozpocznij ponownie.');
+        authBusy.add(key); acquired = true;
+        if (flow.action === 'link') {
+          const prior = sessions.get(flow.owner.sessionId), security = accounts.security(user.id);
+          if (session !== prior || user.id !== flow.owner.userId || Date.now() - prior.createdAt > ttlMs || prior.busy ||
+              security.disabled || security.version !== flow.owner.version)
+            throw new SocialLoginError(401, 'Sesja powiązania wygasła. Zaloguj się i rozpocznij ponownie.');
+          accounts.linkSocial(user.id, identity);
+          sessions.delete(flow.owner.sessionId);
+          const id = randomBytes(32).toString('hex'); sessions.set(id, prior); setOwnerCookie(res, id);
+        } else {
+          if (session) throw new SocialLoginError(409, 'Wyloguj się przed zmianą konta.');
+          const existing = [...sessions.values()].filter(item => item.user?.id === user.id);
+          if (existing.some(item => item.busy)) throw new SocialLoginError(409, 'Operacja konta jest w toku.');
+          if (sessions.size >= 32 && !existing.length) throw new SocialLoginError(429, 'Limit aktywnych sesji.');
+          const version = accounts.security(user.id).version;
+          for (const [id, item] of sessions) if (item.user?.id === user.id) { sessions.delete(id); await dispose(item); }
+          // Recheck after asynchronous cleanup: revocation/unlink cannot race a new cookie.
+          if (accounts.security(user.id).version !== version) throw new SocialLoginError(401, 'Konto zmieniło stan. Rozpocznij ponownie.');
+          accounts.loginSocial(identity);
+          const id = randomBytes(32).toString('hex'); sessions.set(id, newSession(user)); setOwnerCookie(res, id);
+        }
+        res.setHeader('Set-Cookie', [res.getHeader('Set-Cookie'), `${flowCookie()}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${origin.startsWith('https:') ? '; Secure' : ''}`]);
+        return json(200, { ok: true });
+      } catch (error) {
+        const known = error instanceof SocialLoginError || error instanceof AccountError;
+        return json(known ? error.status : 502, { error: known ? error.message : 'Logowanie nie zostało potwierdzone. Rozpocznij ponownie.' });
+      } finally { if (acquired) authBusy.delete(key); }
+    }
+    const match = url.pathname.match(/^\/api\/auth\/oauth\/(google|microsoft)\/(start|link|unlink|callback)$/);
+    if (!match) return json(404, { error: 'Nieznany dostawca lub czynność.' });
+    const [, provider, action] = match;
+    let locked = false;
+    try {
+      if (action === 'callback') {
+        if (req.method !== 'GET') return json(405, { error: 'Callback wymaga GET.' });
+        const allowed = ['state', 'code', 'error', 'error_description', 'error_uri', 'session_state', 'iss', 'scope', 'authuser', 'prompt'];
+        if ([...url.searchParams.keys()].some(key => !allowed.includes(key) || url.searchParams.getAll(key).length !== 1) || url.search.length > 8192)
+          throw new SocialLoginError(400, 'Nieprawidłowa odpowiedź logowania.');
+        const browser = readFlowCookie(req);
+        const flow = social.consume(provider, url.searchParams.get('state'), browser);
+        if (url.searchParams.has('error')) throw new SocialLoginError(401, 'Dostawca nie potwierdził logowania.');
+        if (url.searchParams.has('iss') && !social.providers[provider].issuers.includes(url.searchParams.get('iss')))
+          throw new SocialLoginError(403, 'Odpowiedź pochodzi od innego dostawcy.');
+        const identity = await social.verify(provider, flow, url.searchParams.get('code'));
+        if (completedSocial.size >= 256) throw new SocialLoginError(429, 'Za dużo logowań. Rozpocznij ponownie później.');
+        completedSocial.set(browser, { flow, identity, expires: Math.min(flow.expires, Date.now() + 60_000) });
+        // A same-origin POST sees the Strict app cookie, preventing silent account switches during a cross-site redirect.
+        res.writeHead(303, { Location: '/account?oauth=complete' }); return res.end();
+      }
+      if (req.method !== 'POST') return json(405, { error: 'Rozpoczęcie logowania wymaga POST.' });
+      if (!validOrigin(req) || url.search || !(req.headers['content-type'] || '').startsWith('application/json'))
+        throw new SocialLoginError(403, 'Rozpocznij czynność w interfejsie platformy.');
+      if (!budget(`social:${req.socket.remoteAddress}`, 36)) throw new SocialLoginError(429, 'Za dużo prób logowania.');
+      if (action === 'start' && session) throw new SocialLoginError(409, 'Wyloguj się przed zmianą konta.');
+      if (action !== 'start' && !session?.user) throw new SocialLoginError(401, 'Zaloguj się do platformy.');
+      if (session?.busy) throw new SocialLoginError(409, 'Operacja konta jest w toku.');
+      if (authBusy.size >= 2) throw new SocialLoginError(429, 'Inne logowanie jest w toku.');
+      const key = session?.user?.username || `social:${req.socket.remoteAddress}`;
+      if (authBusy.has(key)) throw new SocialLoginError(429, 'Operacja konta jest w toku.');
+      authBusy.add(key); locked = key;
+      let body = '', input;
+      for await (const chunk of req) { body += chunk; if (Buffer.byteLength(body) > 2048) throw new SocialLoginError(413, 'Żądanie jest zbyt duże.'); }
+      try { input = JSON.parse(body); } catch { throw new SocialLoginError(400, 'Nieprawidłowy JSON.'); }
+      if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(name => name !== 'currentPassword'))
+        throw new SocialLoginError(400, 'Nieprawidłowe dane czynności.');
+      if (action !== 'start') {
+        if (!budget(`account:${session.user.username}`, authLimit)) throw new SocialLoginError(429, 'Za dużo prób. Spróbuj później.');
+        await accounts.login({ username: session.user.username, password: input.currentPassword });
+      }
+      const sessionId = session ? [...sessions].find(([, item]) => item === session)?.[0] : null;
+      if (session && (!sessionId || session.busy || Date.now() - session.createdAt > ttlMs ||
+          accounts.security(session.user.id).version !== session.version || accounts.security(session.user.id).disabled))
+        throw new SocialLoginError(401, 'Sesja wygasła. Zaloguj się ponownie.');
+      if (action === 'unlink') {
+        for (const [browser, proof] of completedSocial) {
+          if (proof.identity.provider !== provider) continue;
+          let userId = proof.flow.owner?.userId;
+          if (proof.flow.action === 'login') { try { userId = accounts.loginSocial(proof.identity).id; } catch {} }
+          if (userId === session.user.id) completedSocial.delete(browser);
+        }
+        accounts.unlinkSocial(session.user.id, provider); social.cancelOwner(session.user.id, provider);
+        return json(200, { ok: true });
+      }
+      const result = social.begin(provider, origin, action === 'link' ? 'link' : 'login', session ?
+        { sessionId, userId: session.user.id, version: session.version } : null);
+      setFlowCookie(res, result.browser); return json(200, { url: result.url });
+    } catch (error) {
+      const known = error instanceof SocialLoginError || error instanceof AccountError;
+      return json(known ? error.status : 502, { error: known ? error.message : 'Logowanie nie zostało potwierdzone. Rozpocznij ponownie.' });
+    } finally { if (locked) authBusy.delete(locked); }
   }
   async function authRoute(req, res, json, session) {
     if (req.method === "GET" && req.url === "/api/auth/me")
       return json(200, {
         user: session?.user || null,
         setupRequired: accounts.needsSetup(),
+        registrationRequiresCode: true,
+        registrationEnabled: registration.enabled,
       });
     if (
       req.method !== "POST" ||
@@ -234,7 +381,7 @@ export async function createPilot({
       if (session) await dispose(session);
       res.setHeader(
         "Set-Cookie",
-        `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${origin.startsWith("https:") ? "; Secure" : ""}`,
+        `${ownerCookie()}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${origin.startsWith("https:") ? "; Secure" : ""}`,
       );
       return json(200, { ok: true });
     }
@@ -242,6 +389,12 @@ export async function createPilot({
     if (session && !securityAction) return json(409, { error: "Wyloguj się przed zmianą konta." });
     let key;
     let locked = false;
+    const claimed = [];
+    const claimAccount = userId => {
+      const owners = [...sessions.values()].filter(item => item.user?.id === userId);
+      if (owners.some(item => item.busy)) throw new AccountError(409, 'Operacja USOS trwa. Spróbuj ponownie za chwilę.');
+      for (const item of owners) { item.busy = true; claimed.push(item); }
+    };
     try {
       if (!req.headers["content-type"]?.startsWith("application/json"))
         throw new AccountError(400, "Wymagany JSON.");
@@ -261,38 +414,37 @@ export async function createPilot({
         throw new AccountError(400, "Nieprawidłowy formularz.");
       key = securityAction ? session.user.username : usernameOf(input.username);
       // Only socket identity is trusted; forwarded headers never select a budget.
-      if (!budget(`account:${key}`, authLimit) ||
-          !budget(`source:${req.socket.remoteAddress}`, Math.max(96, authLimit * 8))) {
+      if (!budget(`source:${req.socket.remoteAddress}`, Math.max(96, authLimit * 8)) ||
+          !budget(`unknown:${req.socket.remoteAddress}:${key}`, authLimit)) {
         res.setHeader("Retry-After", String(Math.ceil(authWindowMs / 1000)));
         throw new AccountError(429, "Za dużo prób. Spróbuj ponownie za minutę.");
       }
+      if (req.url === '/api/auth/register') registration.require(input.registrationCode);
+      const accountBlocked = (req.url === '/api/auth/login' || securityAction) && accounts.hasUser(key) && !budget(`account:${key}`, authLimit);
       if (authBusy.has(key) || authBusy.size >= 2)
         throw new AccountError(429, "Logowanie jest już w toku.");
       authBusy.add(key);
       locked = true;
+      // Protected-account exhaustion stays indistinguishable from a wrong password, including KDF cost.
+      if (accountBlocked) await accounts.login({username: key, password: securityAction ? input.currentPassword : input.password}, true);
       // Never replace an account connection while a browser operation is still running.
       const prior = [...sessions.values()].find(
         (s) => s.user?.username === key,
       );
-      if (prior?.busy)
-        throw new AccountError(
-          409,
-          "Operacja USOS trwa. Spróbuj ponownie za chwilę.",
-        );
-      if (sessions.size >= 32 && !prior)
+      if (req.url === '/api/auth/register' && sessions.size >= 32)
         throw new AccountError(429, "Limit aktywnych sesji.");
       if (securityAction) {
-        const result = await accounts.securityAction(session.user, input, securityAction);
+        const result = await accounts.securityAction(session.user, input, securityAction, claimAccount);
         if (securityAction !== 'recovery-code') {
           for (const [id, item] of sessions) if (item.user?.id === session.user.id) {
             sessions.delete(id); await dispose(item);
           }
-          res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${origin.startsWith('https:') ? '; Secure' : ''}`);
+          res.setHeader('Set-Cookie', `${ownerCookie()}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${origin.startsWith('https:') ? '; Secure' : ''}`);
         }
         return json(200, result);
       }
       if (req.url === '/api/auth/recover') {
-        const user = await accounts.recover(input);
+        const user = await accounts.recover(input, claimAccount);
         for (const [id, item] of sessions) if (item.user?.id === user.id) {
           sessions.delete(id); await dispose(item);
         }
@@ -302,6 +454,7 @@ export async function createPilot({
         await accounts[req.url.endsWith("register") ? "register" : "login"](
           input,
         );
+      if (sessions.size >= 32 && !prior) throw new AccountError(429, 'Limit aktywnych sesji.');
       if (prior?.busy)
         throw new AccountError(
           409,
@@ -327,6 +480,7 @@ export async function createPilot({
       });
     } finally {
       if (locked) authBusy.delete(key);
+      for (const item of claimed) item.busy = false;
     }
   }
   const server = http.createServer((req, res) => {
@@ -341,6 +495,9 @@ export async function createPilot({
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "no-referrer");
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+    res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+    if (origin.startsWith('https:')) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
     res.setHeader(
       "Content-Security-Policy",
       "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
@@ -351,7 +508,10 @@ export async function createPilot({
     };
     if (!validHost(req) || (req.headers.origin && !validOrigin(req)))
       return json(403, { error: "Origin rejected" });
-    if (req.headers["sec-fetch-site"] === "cross-site")
+    const oauthCallback = req.method === 'GET' && /^\/api\/auth\/oauth\/(google|microsoft)\/callback(?:\?|$)/.test(req.url);
+    const oauthLanding = req.method === 'GET' && req.url === '/account?oauth=complete' &&
+      req.headers['sec-fetch-mode'] === 'navigate' && req.headers['sec-fetch-dest'] === 'document';
+    if (req.headers["sec-fetch-site"] === "cross-site" && !oauthCallback && !oauthLanding)
       return json(403, { error: "Cross-site request rejected" });
     if (req.method === "GET" && req.url === "/healthz")
       return json(200, { status: "ok" });
@@ -359,7 +519,7 @@ export async function createPilot({
       return json(dashboardAssets.has("/dashboard/") ? 200 : 503, {
         status: dashboardAssets.has("/dashboard/") ? "ready" : "missing_dashboard",
       });
-    const path = req.url;
+    const path = req.method === 'GET' && req.url === '/account?oauth=complete' ? '/account' : req.url;
     let session = owner(req);
     if (session && Date.now() - session.createdAt > ttlMs) {
       for (const [id, item] of sessions)
@@ -368,6 +528,8 @@ export async function createPilot({
       session = undefined;
     }
     const requestUrl = new URL(req.url, origin);
+    if (requestUrl.pathname === '/api/auth/providers' || requestUrl.pathname.startsWith('/api/auth/oauth/'))
+      return socialRoute(req, res, json, session, requestUrl);
     if (timetable && req.method === "GET" && requestUrl.pathname === "/api/plan") {
       try {
         if (requestUrl.searchParams.getAll("trackId").length > 1 || [...requestUrl.searchParams.keys()].some(key => !["trackId", "scope"].includes(key)))
@@ -381,6 +543,20 @@ export async function createPilot({
           const plan = await session.dashboard.plan(selected);
           if (session.worker !== worker || worker.state !== "connected") throw new DashboardError(401, "Sesja została rozłączona.");
           return json(200, plan);
+        }
+        const source = req.socket.remoteAddress;
+        const id = selected ?? timetable.defaultTrackId;
+        const cached = timetable.cache?.get(id);
+        const cold = !cached || Date.now() - cached.at >= timetable.ttl;
+        if (cold) {
+          const anonymous = !session?.user;
+          const owner = anonymous ? `source:${source}` : `user:${session.user.id}`;
+          // Public imports (including signed-in callers) cannot fill all eight repository slots.
+          if ((publicImports.get(owner) || 0) >= 2 || publicImportCount >= 6 || (anonymous && anonymousImportCount >= 4) || !budget(`public:${owner}`, 12))
+            throw new TimetableError(429, 'Importy publiczne są zajęte. Spróbuj później lub zaloguj się.');
+          publicImports.set(owner, (publicImports.get(owner) || 0) + 1); publicImportCount++; if (anonymous) anonymousImportCount++;
+          try { return json(200, await publicPlan(timetable, selected)); }
+          finally { publicImportCount--; if (anonymous) anonymousImportCount--; const left = publicImports.get(owner) - 1; if (left) publicImports.set(owner, left); else publicImports.delete(owner); }
         }
         return json(200, await publicPlan(timetable, selected));
       } catch (error) {
@@ -625,21 +801,21 @@ export async function createPilot({
         await dispose(session);
       } else if (path === "/api/start") {
         const active = [...sessions.values()].filter(
-          (s) => s !== session && (s.operation === "/api/start" || (s.worker && !["connected", "expired", "disconnected"].includes(s.worker.state))),
+          (s) => s !== session && (s.operation === "/api/start" || (s.worker && (s.worker.browser || !["connected", "expired", "disconnected"].includes(s.worker.state)))),
         ).length;
         if (active + cleanup.size >= maxBrowsers)
           return json(429, {
             error: "Przeglądarki są zajęte lub trwa ich sprzątanie. Spróbuj za chwilę.",
           });
-        if (Date.now() - lastUpstreamStart < 1200)
-          return json(429, {
-            error: "Wait a moment before starting another login.",
-          });
-        lastUpstreamStart = Date.now();
         await dispose(session);
+        const reserved = [...sessions.values()].filter(s => s !== session &&
+          (s.operation === '/api/start' || (s.worker && (s.worker.browser || !['connected','expired','disconnected'].includes(s.worker.state))))).length;
+        if (reserved + cleanup.size >= maxBrowsers) return json(429, { error: 'Przeglądarki są zajęte lub trwa ich sprzątanie. Spróbuj za chwilę.' });
         session.generation = randomBytes(16).toString("hex");
         session.lastVerify = 0;
         session.worker = workerFactory();
+        session.loginStartedAt = session.touched = Date.now();
+        await waitForLaunch();
         await session.worker.start();
       } else {
         if (!session.worker)
@@ -757,19 +933,23 @@ export async function createPilot({
   const timer = setInterval(
     () => {
       for (const [id, session] of sessions) {
+        if (!session.busy && session.worker && session.worker.state !== 'connected' &&
+            (Date.now() - session.touched > loginIdleMs || Date.now() - session.loginStartedAt > loginHardMs))
+          void dispose(session).catch(() => console.error('LOGIN_CLEANUP_FAILED'));
         if (!session.busy && Date.now() - session.createdAt > ttlMs) {
           sessions.delete(id);
           void dispose(session).catch(() => console.error("SESSION_CLEANUP_FAILED"));
         }
       }
     },
-    Math.min(ttlMs, 15_000),
+    Math.min(ttlMs, loginIdleMs, 15_000),
   );
   timer.unref();
   return {
     origin,
     address: server.address(),
     async close() {
+      social.clear(); completedSocial.clear();
       clearInterval(timer);
       await Promise.all([...sessions.values()].map(dispose));
       sessions.clear();
@@ -789,11 +969,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const runtime = process.env.WORKER_BACKEND || "local";
   if (!["local", "kubernetes"].includes(runtime))
     throw new Error("Invalid WORKER_BACKEND");
+  const loginCapacity = Number(process.env.PILOT_MAX_BROWSERS || (runtime === 'kubernetes' ? '2' : '5'));
+  if (runtime === 'kubernetes' && (!Number.isInteger(loginCapacity) || loginCapacity < 1 || loginCapacity > 2))
+    throw new Error('Kubernetes login capacity exceeds the shipped worker quota (max 2).');
   const pool =
     runtime === "kubernetes"
       ? new KubernetesPool({
           kubeconfig: process.env.USOS_KUBECONFIG,
           inCluster: process.env.USOS_IN_CLUSTER === "true",
+          maxWorkers: loginCapacity,
           image: process.env.USOS_WORKER_IMAGE || "usos-chromium:2026-09-14-security-v3",
         })
       : null;
@@ -805,12 +989,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...(process.env.PILOT_ACCOUNTS_PATH ? { accountsPath: process.env.PILOT_ACCOUNTS_PATH } : {}),
     workerRuntime: runtime,
     timetable: new TimetableRepository({ defaultTrackId: process.env.TIMETABLE_TRACK_ID || "958" }),
+    maxBrowsers: loginCapacity,
     ...(pool
       ? { workerFactory: () => new KubernetesBrowserWorker({ pool }) }
       : {}),
   });
   console.log(
-    `USOS login pilot: ${pilot.origin} (two isolated slots; workers=${runtime})`,
+    `USOS login pilot: ${pilot.origin} (max login browsers=${loginCapacity}; workers=${runtime})`,
   );
   for (const signal of ["SIGINT", "SIGTERM"])
     process.once(signal, async () => {
